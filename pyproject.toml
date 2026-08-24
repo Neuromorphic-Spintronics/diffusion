@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "diffusionsde"
+version = "0.2.0"
+description = "Modular implementation of denoising diffusion probabilistic models for time series generation."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.4",
+    "pandas>=2.0.0",
+    "scipy>=1.15",
+    "torch>=2.13.0",
+    "tqdm>=4.67.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pre-commit>=4.0.0",
+]
+wandb = [
+    "wandb>=0.24.0",
+]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "python-dotenv>=1.0.0",
+    "ruff>=0.14.5",
+    "ty>=0.0.18",
+    "wandb>=0.24.0",
+]
+notebooks = [
+    "ipykernel>=6.29.0",
+    "jupyter>=1.1.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["diffusionsde"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["diffusionsde"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
