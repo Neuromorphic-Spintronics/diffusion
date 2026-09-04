@@ -1,0 +1,11 @@
+from diffusionsde import InverseProblem, InverseProblemConfig
+
+def condition_from_parameter(p, n_gen, n_time, device, run_idx):
+    return p.reshape(1, 1, 1).expand(n_gen, 1, n_time)
+
+model.freeze()
+inverse = InverseProblem(
+    model, observed, condition_from_parameter, (p_min, p_max),
+    InverseProblemConfig(n_iterations=100, n_gen=64),
+)
+result = inverse.solve(n_runs=8)

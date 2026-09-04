@@ -1,0 +1,13 @@
+A stochastic dynamical system defines a probability distribution over trajectories.
+We present \texttt{diffusionsde}, a Python package that fits conditional trajectory
+distributions from simulated or measured ensembles. A one-dimensional conditional
+U-Net predicts the noise added by a variance-preserving diffusion process. The
+package supports ancestral DDPM sampling and reduced-step DDIM sampling. With
+$\eta=0$ and fixed initial noise, the DDIM update is deterministic. Trajectories
+and conditions may be scalar or multichannel; conditions can also contain full
+driving waveforms. We define the data representation, training objective, reverse
+samplers, validation statistics, and differentiable inverse workflow. An
+Ornstein--Uhlenbeck process provides analytic and finite-step stationary references.
+A stochastically forced Duffing oscillator tests nonlinear transient dynamics with
+coloured forcing. The same workflow is then applied to measured magnetic-device
+trajectories for which a trusted governing equation is not available.

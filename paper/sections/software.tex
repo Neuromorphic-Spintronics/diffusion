@@ -1,0 +1,247 @@
+\section{Software implementation}
+\label{sec:software}
+
+\subsection{Package organisation and tensor interface}
+
+The package is organised around a small public interface. \texttt{DiffusionConfig}
+stores model and optimisation settings. \texttt{DDPM} owns the conditional U-Net,
+forward diffusion process, and selected sampler. \texttt{StatisticsEvaluator}
+computes ensemble diagnostics. \texttt{InverseProblem} estimates a scalar
+conditioning parameter through a fitted DDIM generator. The package
+does not contain a simulator for a particular physical system. Users create
+trajectory--conditioning pairs with their own numerical solver or measurement
+pipeline, then pass them to \texttt{DDPM.fit}.
+
+The data interface has a batch axis, optional channel axis, and physical-time
+axis. A scalar dataset has the shape \texttt{[batch, time]}. A multichannel
+dataset has the shape \texttt{[batch, channels, time]}. Dataset members must be
+ordered as \texttt{(data, conditioning)}. The number of generated channels and
+conditioning channels is set in \texttt{DiffusionConfig}. This explicit
+representation avoids implicit reshaping of physical variables during training.
+
+\begin{pythonlisting}
+from torch.utils.data import TensorDataset
+from diffusionsde import DDPM, DiffusionConfig
+
+config = DiffusionConfig(
+    trajectory_length=256,
+    n_output_channels=2,
+    n_conditioning_channels=1,
+)
+ddpm = DDPM(config, sampler_type="ddim")
+history = ddpm.fit(TensorDataset(data, conditioning))
+\end{pythonlisting}
+
+The method returns $M$ samples for each supplied conditioning input. If the input
+contains $B$ conditions, the returned leading dimension is $BM$. For one generated
+channel, the output shape is \texttt{[BM, N\_T]}; for $C_q>1$, it is
+\texttt{[BM, C\_q, N\_T]}. The sampler flattens the first two axes. Downstream
+code should reshape it only after retaining $B$ and $M$. The output is on the
+model scale, so apply the inverse data transform before physical validation.
+
+\subsection{Configuration and training}
+
+Table~\ref{tab:config} gives the default configuration. The default values are
+starting points, not physical constants. In particular, $N_K$ determines the
+artificial noising process, whereas \texttt{trajectory\_length} is fixed by the
+physical observation grid. Internal resolution is reduced by factors close to two.
+The implementation accepts other trajectory lengths and interpolates decoder
+features when needed. A length divisible by $2^{n_{\mathrm{layers}}-1}$ gives
+exact resolution changes between U-Net levels. Dilation and the number of levels
+should be selected from the correlation time and dominant frequencies of the data
+rather than from $N_K$.
+
+\begin{table}[t]
+  \centering
+  \caption{Selected \texttt{DiffusionConfig} defaults.}
+  \label{tab:config}
+  \small
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Group & Entry & Default \\
+    \midrule
+    Diffusion & number of diffusion steps $N_K$ & $1000$ \\
+    Diffusion & schedule endpoints $\beta_1$, $\beta_{N_K}$ & $10^{-4}$, $0.02$ \\
+    Data & physical trajectory length & $250$ \\
+    Architecture & hidden width & $128$ \\
+    Architecture & encoder levels & $4$ \\
+    Architecture & kernel size & $3$ \\
+    Architecture & generated and conditioning channels & $1$, $1$ \\
+    Optimisation & learning rate & $10^{-4}$ \\
+    Optimisation & batch size & $32$ \\
+    Optimisation & epochs & $50$ \\
+    Loss & form & MSE; Huber optional \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The trainer creates shuffled minibatches, applies the objective in
+Eq.~\eqref{eq:noise_objective}, clips the global parameter-gradient norm at one,
+and advances a cosine-annealed learning rate. A validation set is optional. When
+it is present, the trainer records one held-out loss per epoch and restores the
+weights from the epoch with the lowest validation loss. Training history is a
+dictionary with \texttt{train\_loss}; it also contains \texttt{val\_loss},
+\texttt{best\_val\_loss}, and \texttt{best\_epoch} when validation is used.
+
+The checkpoint stores model weights, optimiser and scheduler states, loss
+histories, validation information, and the configuration. The high-level
+\texttt{DDPM.load} method restores the saved configuration and model weights for
+generation. It does not restore an optimiser or scheduler. Sampler type and
+sampler arguments are not stored in the checkpoint, so users must set them before
+they create a \texttt{DDPM}. A workflow that resumes optimisation must use the
+full trainer checkpoint state.
+
+\begin{pythonlisting}
+train_dataset = TensorDataset(x_train, c_train)
+validation_dataset = TensorDataset(x_validation, c_validation)
+
+history = ddpm.fit(
+    train_dataset,
+    val_dataset=validation_dataset,
+)
+ddpm.save("checkpoints/duffing.pt")
+
+restored = DDPM(
+    sampler_type="ddim",
+    sampler_kwargs={"num_inference_steps": 200, "eta": 0.0},
+)
+restored.load("checkpoints/duffing.pt")
+\end{pythonlisting}
+
+\subsection{Network and sampler choices}
+
+The conditional U-Net is described in Section~\ref{sec:conditional_diffusion}.
+The implementation also provides \texttt{compute\_dilated\_rf}, which evaluates
+the receptive field implied by a network depth, convolution width, and dilation
+schedule. This check is useful before fitting long, correlated trajectories. For
+causal applications, \texttt{causal=True} applies left-only convolution padding
+and causal normalisation; a change to future input samples then cannot change an
+earlier denoiser output.
+
+\texttt{DDPMSampler} evaluates all $N_K$ reverse steps and draws posterior noise
+at every nonterminal step. \texttt{DDIMSampler} can use fewer inference steps.
+The \texttt{eta} parameter is the $\eta$ in Eqs.~\eqref{eq:ddim_sigma} and
+\eqref{eq:ddim_update}. It is zero by default. With \texttt{eta=0}, a fixed
+\texttt{initial\_noise} tensor makes a draw repeatable. Positive values add noise
+during the reverse chain. The code below uses the preceding two-output-channel
+configuration.
+
+\begin{pythonlisting}
+import torch
+
+# c_query has shape [trajectory_length] because there is one condition channel.
+initial_noise = torch.randn(
+    32, config.n_output_channels, config.trajectory_length,
+)
+
+samples = ddpm.generate(
+    c_query,
+    n_samples=32,
+    initial_noise=initial_noise,
+    show_progress=False,
+)
+\end{pythonlisting}
+
+The optional \texttt{require\_grad=True} flag retains automatic-differentiation
+operations through DDIM generation. The \texttt{grad\_steps} argument can restrict
+the graph to selected denoising steps, which reduces memory use at the cost of an
+approximate gradient. It does not change the generated sample. A fixed initial
+Gaussian tensor gives a repeatable inverse objective only when the DDIM sampler
+uses $\eta=0$. This argument is specific to DDIM sampling and must not be sent to
+the ancestral DDPM sampler.
+
+\subsection{Validation diagnostics}
+
+The evaluator compares two scalar ensembles of shape \texttt{[n\_samples, time]}.
+It reports errors between the observed and generated mean and standard-deviation
+curves. It also computes the per-trajectory autocorrelation function, an
+ensemble-averaged Welch power spectrum \cite{welch1967psd}, and statistics of a
+pooled tail marginal. The latter include the Wasserstein-1 distance
+\cite{villani2009optimal}, skewness, and excess kurtosis. These diagnostics are
+complementary. A generated ensemble can match pointwise means while having an
+incorrect correlation time or power spectrum.
+
+\begin{pythonlisting}
+from diffusionsde import StatisticsEvaluator
+
+evaluator = StatisticsEvaluator(reference, generated)
+metrics = evaluator.compute_extended_metrics(
+    dt=dt,
+    max_lag=64,
+    tail_fraction=0.5,
+)
+print(metrics["acf_mae"], metrics["wasserstein_1"])
+\end{pythonlisting}
+
+The \texttt{tail\_fraction} argument is important for relaxing systems. It limits
+the autocorrelation, spectral, and marginal tests to the final part of each
+trajectory, excluding an initial transient when stationarity is expected only at
+long physical times. Autocorrelation is normalised separately for each trajectory
+before ensemble averaging. The resulting metrics should be reported with their
+definition and physical sampling interval, not only as a single aggregate score.
+
+\subsection{Differentiable inverse estimation}
+
+The inverse module treats a fitted generator as a conditional surrogate. It is
+intended for one scalar parameter per optimisation run. The user supplies a
+function that maps a proposed parameter value to a conditioning tensor. Let
+$\mathcal{I}$ be the physical-time indices used by the solver, and let
+$\overline{q}_n$ and $V_n$ denote the ensemble mean and sample variance at index
+$n$. For an ensemble of $N_{\mathrm{ens}}$ trajectories, these are
+\begin{align}
+  \overline{q}_n
+  &=
+  \frac{1}{N_{\mathrm{ens}}}
+  \sum_{s=1}^{N_{\mathrm{ens}}}q_n^{(s)},
+  \label{eq:ensemble_mean}\\
+  V_n
+  &=
+  \frac{1}{N_{\mathrm{ens}}-1}
+  \sum_{s=1}^{N_{\mathrm{ens}}}
+  \left(q_n^{(s)}-\overline{q}_n\right)^2 .
+  \label{eq:ensemble_variance}
+\end{align}
+The solver generates an ensemble and minimises
+\begin{equation}
+  \mathcal{M}
+  = w_{\mathrm{mean}}\frac{1}{\lvert\mathcal{I}\rvert}
+    \sum_{n\in\mathcal{I}}
+    \left(\overline{q}_n^{\mathrm{gen}}-\overline{q}_n^{\mathrm{obs}}\right)^2
+  + w_{\mathrm{var}}\frac{1}{\lvert\mathcal{I}\rvert}
+    \sum_{n\in\mathcal{I}}
+    \left(V_n^{\mathrm{gen}}-V_n^{\mathrm{obs}}\right)^2 .
+  \label{eq:moment_matching_loss}
+\end{equation}
+For \texttt{tail\_start=None}, $\mathcal{I}=\{0,\ldots,N_T-1\}$. Otherwise,
+$\mathcal{I}$ is the selected final interval. The weights correspond to
+\texttt{mean\_weight} and \texttt{variance\_weight}. The objective does not
+compare autocorrelations or spectra. Those diagnostics remain necessary after an
+inverse estimate has been obtained. Generated and observed trajectories must use
+the same data scale.
+
+The solver fixes a different initial Gaussian tensor for each restart and keeps it
+fixed over that restart's optimisation iterations. With DDIM and $\eta=0$, this
+makes the sampled realisation repeatable while preserving derivatives with respect
+to the conditioning parameter. Two parameterisations are available: direct
+physical values with a soft boundary penalty, and a sigmoid map that keeps the
+estimate inside a specified interval.
+
+\begin{pythonlisting}
+from diffusionsde import InverseProblem, InverseProblemConfig
+
+def build_conditioning(p, n_gen, n_time, device, run_idx):
+    return p.reshape(1, 1, 1).expand(n_gen, 1, n_time)
+
+ddpm.freeze()
+config = InverseProblemConfig(n_iterations=100, n_gen=64)
+problem = InverseProblem(
+    ddpm, observed, build_conditioning, (p_min, p_max), config,
+)
+result = problem.solve(n_runs=8)
+\end{pythonlisting}
+
+Use a DDIM sampler with $\eta=0$ for this workflow; the inverse module does not
+enforce this setting. It is a practical way to estimate a parameter from ensemble
+moments, but it does not prove parameter identifiability. The conditioning design,
+training coverage, choice of moments, and agreement of temporal diagnostics must
+be assessed for each physical problem.

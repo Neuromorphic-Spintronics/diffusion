@@ -1,0 +1,49 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Many computational-physics problems require ensembles of trajectories. Thermal
+fluctuations, unresolved variables, uncertain initial conditions, and noisy forcing
+make future states random. When a stochastic differential equation (SDE) is known,
+numerical integration can generate the ensemble \cite{kloeden1992numerical}. When
+only measured trajectories are available, direct simulation is not possible.
+Repeated simulation can also be costly when the physical parameters vary.
+
+A surrogate for this task must model the conditional distribution of a full
+trajectory. It must preserve temporal correlations, marginal distributions, and
+dependence on the experimental inputs. Pointwise squared-error regression usually
+estimates a conditional mean and does not represent stochastic spread.
+Physics-informed neural networks and neural operators learn equation-constrained
+solutions or maps between functions \cite{raissi2019pinn,li2021fno,
+lu2021deeponet}. In their standard forms, they do not learn conditional
+distributions over complete stochastic paths.
+
+A diffusion model adds Gaussian noise to a trajectory and trains a neural network
+to predict that noise \cite{sohldickstein2015,ho2020ddpm}. Under the
+mean-squared-error objective, the noise predictor also defines a score estimate for
+the noisy data distribution \cite{vincent2011connection,song2021sde}.
+Conditioning on physical parameters or driving signals selects the trajectory
+distribution. Denoising diffusion implicit models (DDIMs) use the same denoiser
+with fewer reverse evaluations \cite{song2021ddim}. With $\eta=0$ and fixed
+initial noise, the DDIM update is deterministic. This property permits
+derivative-based inverse estimation.
+
+This paper presents \texttt{diffusionsde}, a package for one-dimensional time
+series. The call \texttt{DDPM()} constructs the model. The \texttt{fit} method
+uses trajectory--condition pairs, and \texttt{generate} samples trajectories for
+supplied conditions. The minimal example uses scalar data and the default
+trajectory length. \texttt{DiffusionConfig} controls the trajectory length,
+channel counts, noise schedule, and network settings.
+
+\begin{pythonlisting}
+from diffusionsde import DDPM
+
+model = DDPM()
+model.fit(train_dataset)
+samples = model.generate(conditioning, n_samples=64)
+\end{pythonlisting}
+
+Sections~\ref{sec:physical_problem} and \ref{sec:conditional_diffusion} define the
+data representation, the training objective evaluated by \texttt{fit}, and the
+reverse processes used by \texttt{generate}. Section~\ref{sec:examples} gives the
+numerical verification cases. The experimental systems then use the same
+representation and interface.

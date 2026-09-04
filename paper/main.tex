@@ -1,0 +1,132 @@
+%% Draft manuscript. The journal-specific Springer class can be selected after
+%% the target journal is fixed; the current class is retained for a portable build.
+%% Fonts: newtx for text and mathematics; Source Code Pro for source listings.
+\documentclass[preprint,12pt]{elsarticle}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{newtxtext}
+\usepackage{newtxmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tcolorbox}
+\tcbuselibrary{listings}
+\usepackage[scale=0.90]{sourcecodepro}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{xurl}
+
+
+% ---- Notation macros ----
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Normal}{\mathcal{N}}
+\newcommand{\alphabar}{\bar{\alpha}}
+\newcommand{\qhat}{\hat{\mathbf{q}}_0}
+
+% ---- Source-code listings ----
+\definecolor{draculaBackground}{HTML}{282A36}
+\definecolor{draculaCurrentLine}{HTML}{44475A}
+\definecolor{draculaForeground}{HTML}{F8F8F2}
+\definecolor{draculaComment}{HTML}{6272A4}
+\definecolor{draculaCyan}{HTML}{8BE9FD}
+\definecolor{draculaPink}{HTML}{FF79C6}
+\definecolor{draculaYellow}{HTML}{F1FA8C}
+\lstdefinestyle{diffusionsdepython}{
+  language=Python,
+  basicstyle=\ttfamily\small\color{draculaForeground},
+  keywordstyle=\bfseries\color{draculaPink},
+  commentstyle=\itshape\color{draculaComment},
+  stringstyle=\color{draculaYellow},
+  emph={DiffusionConfig,DDPM},
+  emphstyle=\bfseries\color{draculaCyan},
+  frame=none,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  tabsize=4,
+  aboveskip=0pt,
+  belowskip=0pt,
+}
+\newtcblisting{pythonlisting}{
+  listing engine=listings,
+  listing only,
+  listing options={style=diffusionsdepython},
+  colback=draculaBackground,
+  colframe=draculaCurrentLine,
+  boxrule=0.4pt,
+  arc=0pt,
+  boxsep=0pt,
+  left=4pt,
+  right=4pt,
+  top=4pt,
+  bottom=4pt,
+  before skip=0pt,
+  after skip=\baselineskip,
+}
+
+% ---- Figure placeholder for the first draft ----
+\newcommand{\figbox}[1]{%
+  \fbox{\parbox[c][5.5cm][c]{0.9\linewidth}{\centering\itshape [#1]}}}
+
+% ---- Reference list environment used inside the Program Summary ----
+\newcounter{bla}
+\newenvironment{refnummer}{%
+\list{[\arabic{bla}]}%
+{\usecounter{bla}%
+ \setlength{\itemindent}{0pt}%
+ \setlength{\topsep}{0pt}%
+ \setlength{\itemsep}{0pt}%
+ \setlength{\labelsep}{2pt}%
+ \setlength{\listparindent}{0pt}%
+ \settowidth{\labelwidth}{[9]}%
+ \setlength{\leftmargin}{\labelwidth}%
+ \addtolength{\leftmargin}{\labelsep}%
+ \setlength{\rightmargin}{0pt}}}
+ {\endlist}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{\texttt{diffusionsde}: conditional diffusion models for stochastic dynamical systems}
+
+\author[a]{Jack Griffiths}
+\ead{jack.griffiths@sheffield.ac.uk}
+\address[a]{School of Computer Science, Sheffield University, United Kingdom}
+
+\author[b]{Matthew O. A. Ellis\corref{cor1}}
+\ead{m.o.a.ellis@sheffield.ac.uk}
+\cortext[cor1]{Corresponding author.}
+\address[b]{School of Computer Science, Sheffield University, United Kingdom}
+
+\begin{abstract}
+\input{sections/frontmatter}
+\end{abstract}
+
+\begin{keyword}
+diffusion model \sep stochastic processes \sep dynamical systems \sep generative
+modelling \sep time series \sep inverse problems \sep Python
+\end{keyword}
+
+\end{frontmatter}
+
+\input{sections/introduction}
+\input{sections/experiments}
+\input{sections/experimental}
+\input{sections/summary}
+
+\section*{Data availability}
+Selected case studies (Ornstein--Uhlenbeck and Duffing) are reproduced end to end
+by Jupyter notebooks distributed with the package. The experimental data are
+available upon request. Code, notebooks, and configuration files are available at
+\url{https://github.com/Neuromorphic-Spintronics/diffusion}.
+
+\bibliographystyle{elsarticle-num}
+\bibliography{refs}
+
+\end{document}

@@ -53,27 +53,8 @@ ddpm.fit(dataset)
 samples = ddpm.generate(conditioning[:8], n_samples=8)
 ```
 
-## Ornstein-Uhlenbeck process
-
-The package also provides reusable simulation and dataset utilities for the
-scalar Ornstein-Uhlenbeck process
-
-```python
-import numpy as np
-
-from diffusionsde import OUDataset, OUParams, integrate_ou
-
-time, trajectory = integrate_ou(OUParams(theta=1.0, D=0.5), (0.0, 5.0), 256, seed=42)
-dataset = OUDataset(
-    trajectories=np.asarray([trajectory]),
-    time_array=time,
-    theta_values=np.asarray([1.0]),
-    D_values=np.asarray([0.5]),
-)
-```
-
-`OUDataset` supports the legacy ratio conditioning (`"r"`) and joint
-parameter conditioning (`"theta_D"`).
+Example notebooks (Ornstein-Uhlenbeck, Duffing oscillator) live in
+`notebooks/` and are self-contained.
 
 ## Development
 

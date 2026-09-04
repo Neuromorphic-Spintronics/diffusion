@@ -1,0 +1,76 @@
+\begin{thebibliography}{10}
+\expandafter\ifx\csname url\endcsname\relax
+  \def\url#1{\texttt{#1}}\fi
+\expandafter\ifx\csname urlprefix\endcsname\relax\def\urlprefix{URL }\fi
+\expandafter\ifx\csname href\endcsname\relax
+  \def\href#1#2{#2} \def\path#1{#1}\fi
+
+\bibitem{sohldickstein2015}
+J.~Sohl-Dickstein, E.~A. Weiss, N.~Maheswaranathan, S.~Ganguli, Deep unsupervised learning using nonequilibrium thermodynamics, in: Proceedings of the 32nd International Conference on Machine Learning, 2015, pp. 2256--2265.
+
+\bibitem{ho2020ddpm}
+J.~Ho, A.~Jain, P.~Abbeel, Denoising diffusion probabilistic models, in: Advances in Neural Information Processing Systems, Vol.~33, 2020, pp. 6840--6851.
+
+\bibitem{song2021ddim}
+J.~Song, C.~Meng, S.~Ermon, Denoising diffusion implicit models, in: International Conference on Learning Representations, 2021.
+
+\bibitem{kidger2021neuralsde}
+P.~Kidger, J.~Foster, X.~Li, T.~J. Lyons, Neural {SDE}s as infinite-dimensional {GAN}s, in: Proceedings of the 38th International Conference on Machine Learning, Vol. 139 of Proceedings of Machine Learning Research, PMLR, 2021, pp. 5453--5463.
+
+\bibitem{cranmer2020frontier}
+K.~Cranmer, J.~Brehmer, G.~Louppe, The frontier of simulation-based inference, Proceedings of the National Academy of Sciences 117~(48) (2020) 30055--30062.
+\newblock \href {https://doi.org/10.1073/pnas.1912789117} {\path{doi:10.1073/pnas.1912789117}}.
+
+\bibitem{vincent2011connection}
+P.~Vincent, A connection between score matching and denoising autoencoders, Neural Computation 23~(7) (2011) 1661--1674.
+
+\bibitem{song2021sde}
+Y.~Song, J.~Sohl-Dickstein, D.~P. Kingma, A.~Kumar, S.~Ermon, B.~Poole, Score-based generative modeling through stochastic differential equations, in: International Conference on Learning Representations, 2021.
+
+\bibitem{hyvarinen2005score}
+A.~Hyv{\"a}rinen, Estimation of non-normalized statistical models by score matching, Journal of Machine Learning Research 6 (2005) 695--709.
+
+\bibitem{ronneberger2015unet}
+O.~Ronneberger, P.~Fischer, T.~Brox, {U-Net}: Convolutional networks for biomedical image segmentation, in: Medical Image Computing and Computer-Assisted Intervention -- MICCAI 2015, Springer, 2015, pp. 234--241.
+
+\bibitem{peebles2023dit}
+W.~Peebles, S.~Xie, Scalable diffusion models with transformers, in: Proceedings of the IEEE/CVF International Conference on Computer Vision, 2023, pp. 4195--4205.
+
+\bibitem{he2016residual}
+K.~He, X.~Zhang, S.~Ren, J.~Sun, Deep residual learning for image recognition, in: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2016, pp. 770--778.
+
+\bibitem{wu2018groupnorm}
+Y.~Wu, K.~He, Group normalization, in: Proceedings of the European Conference on Computer Vision (ECCV), 2018, pp. 3--19.
+
+\bibitem{vaswani2017attention}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez, {\L}.~Kaiser, I.~Polosukhin, Attention is all you need, in: Advances in Neural Information Processing Systems, Vol.~30, 2017.
+
+\bibitem{kingma2015adam}
+D.~P. Kingma, J.~L. Ba, Adam: A method for stochastic optimization, in: International Conference on Learning Representations, 2015.
+
+\bibitem{loshchilov2017sgdr}
+I.~Loshchilov, F.~Hutter, {SGDR}: Stochastic gradient descent with warm restarts, in: International Conference on Learning Representations, 2017.
+
+\bibitem{uhlenbeck1930}
+G.~E. Uhlenbeck, L.~S. Ornstein, On the theory of the {B}rownian motion, Physical Review 36~(5) (1930) 823--841.
+
+\bibitem{guckenheimer1983nonlinear}
+J.~Guckenheimer, P.~Holmes, Nonlinear Oscillations, Dynamical Systems, and Bifurcations of Vector Fields, Springer, New York, 1983.
+
+\bibitem{dawidek2021}
+R.~W. Dawidek, T.~J. Hayward, I.~T. Vidamour, T.~J. Broomhall, G.~Venkat, M.~A. Mamoori, A.~Mullen, S.~J. Kyle, P.~W. Fry, N.-J. Steinke, J.~F.~K. Cooper, F.~Maccherozzi, S.~S. Dhesi, L.~Aballe, M.~Foerster, J.~Prat, E.~Vasilaki, M.~O.~A. Ellis, D.~A. Allwood, Dynamically driven emergence in a nanomagnetic system, Adv. Funct. Mater. 31 (2021) 2008389.
+\newblock \href {https://doi.org/10.1002/adfm.202008389} {\path{doi:10.1002/adfm.202008389}}.
+
+\bibitem{vidamour2022}
+I.~T. Vidamour, M.~O.~A. Ellis, D.~Griffin, G.~Venkat, C.~Swindells, R.~W.~S. Dawidek, T.~J. Broomhall, N.~J. Steinke, J.~F.~K. Cooper, F.~Maccherozzi, S.~S. Dhesi, S.~Stepney, E.~Vasilaki, D.~A. Allwood, T.~J. Hayward, Quantifying the computational capability of a nanomagnetic reservoir computing platform with emergent magnetisation dynamics, Nanotechnology 33~(48) (2022) 485203.
+\newblock \href {https://doi.org/10.1088/1361-6528/ac87b5} {\path{doi:10.1088/1361-6528/ac87b5}}.
+
+\bibitem{manneschi2025}
+L.~Manneschi, I.~T. Vidamour, K.~D. Stenning, C.~Swindells, G.~Venkat, D.~Griffin, L.~Gui, D.~Sonawala, D.~Donskikh, D.~Hariga, E.~Donati, S.~Stepney, W.~R. Branford, J.~C. Gartside, T.~J. Hayward, M.~O.~A. Ellis, E.~Vasilaki, Noise-aware training of neuromorphic dynamic device networks, Nat. Commun. 16 (2025) 9192.
+\newblock \href {https://doi.org/10.1038/s41467-025-64232-1} {\path{doi:10.1038/s41467-025-64232-1}}.
+
+\bibitem{stenning2024neuromorphic}
+K.~Stenning, et~al., Neuromorphic overparameterisation and few-shot learning in multilayer physical neural networks, Nature Communications 15 (2024).
+\newblock \href {https://doi.org/10.1038/s41467-024-50633-1} {\path{doi:10.1038/s41467-024-50633-1}}.
+
+\end{thebibliography}

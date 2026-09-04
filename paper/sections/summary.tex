@@ -1,0 +1,23 @@
+\section{Summary}
+\label{sec:summary}
+
+\texttt{diffusionsde} models a conditional distribution over discretised
+stochastic trajectories. The package supports ancestral DDPM sampling and
+reduced-step DDIM sampling. With $\eta=0$ and a fixed initial Gaussian tensor,
+DDIM sampling is repeatable. The option \texttt{require\_grad=True} retains a
+differentiable map from a conditioning parameter to a trajectory.
+
+The call \texttt{DDPM()} constructs the model. The method \texttt{fit} learns a
+conditional trajectory distribution, and \texttt{generate} samples an ensemble
+for supplied conditions. The method includes data preparation, training, reverse
+sampling, conversion to physical units, validation, and inverse estimation. The
+Ornstein--Uhlenbeck case
+provides analytic and finite-step references. The Duffing case tests nonlinear
+transient dynamics with coloured forcing.
+
+The method has clear limits. It requires sufficient trajectory coverage across the
+conditioning domain; a low denoising loss alone does not establish physical
+fidelity; and the current inverse solver matches pointwise moments rather than
+temporal correlations. Validation must therefore include correlation and spectral
+tests, and an inverse estimate must be interpreted together with conditioning
+coverage and identifiability analysis.
