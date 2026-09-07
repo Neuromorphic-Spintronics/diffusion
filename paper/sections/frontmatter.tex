@@ -1,13 +1,1 @@
-A stochastic dynamical system defines a probability distribution over trajectories.
-We present \texttt{diffusionsde}, a Python package that fits conditional trajectory
-distributions from simulated or measured ensembles. A one-dimensional conditional
-U-Net predicts the noise added by a variance-preserving diffusion process. The
-package supports ancestral DDPM sampling and reduced-step DDIM sampling. With
-$\eta=0$ and fixed initial noise, the DDIM update is deterministic. Trajectories
-and conditions may be scalar or multichannel; conditions can also contain full
-driving waveforms. We define the data representation, training objective, reverse
-samplers, validation statistics, and differentiable inverse workflow. An
-Ornstein--Uhlenbeck process provides analytic and finite-step stationary references.
-A stochastically forced Duffing oscillator tests nonlinear transient dynamics with
-coloured forcing. The same workflow is then applied to measured magnetic-device
-trajectories for which a trusted governing equation is not available.
+A stochastic dynamical system defines a probability distribution over trajectories. We present \texttt{diffusionsde}, a Python package that creates generative models of dynamical systems from simulated or measured ensembles using diffusion modelling \cite{sohldickstein2015,ho2020ddpm,song2021ddim}. The package supports ancestral DDPM sampling and reduced-step DDIM sampling. With $\eta=0$ and fixed initial noise, the DDIM update can be made deterministic. Trajectories may be conditioned on initial conditions, external forcing, other time-dependent signals, or nothing at all. Once a model is learnt, it can be used to generate new trajectories given only the conditioning signal (e.g., to create a set of realistic trajectories given a set of initial conditions, or an external forcing waveform). The package also supports downstream tasks that rely upon the differentiability of the generative model, such as the inverse problem: given a set of trajectories, what was the conditioning signal that generated them? The package is designed to be agnostic to the underlying system, and it is therefore applicable to both simulated and measured data. We present three examples of increasing complexity to illustrate the package's capabilities: an Ornstein--Uhlenbeck process, a stochastically forced Duffing oscillator, and two experimental magnetic-reservoir-computing systems (for which a trusted governing equation is not available).

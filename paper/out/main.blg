@@ -3,52 +3,75 @@ Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
 The top-level auxiliary file: main.aux
 The style file: elsarticle-num.bst
 Database file #1: refs.bib
-Warning--empty pages in li2021fno
+Repeated entry---line 311 of file refs.bib
+ : @inproceedings{sohldickstein2015
+ :                                 ,
+I'm skipping whatever remains of this entry
+Repeated entry---line 323 of file refs.bib
+ : @inproceedings{ho2020ddpm
+ :                          ,
+I'm skipping whatever remains of this entry
+Repeated entry---line 332 of file refs.bib
+ : @article{vincent2011connection
+ :                               ,
+I'm skipping whatever remains of this entry
+Repeated entry---line 343 of file refs.bib
+ : @inproceedings{song2021sde
+ :                           ,
+I'm skipping whatever remains of this entry
+Repeated entry---line 352 of file refs.bib
+ : @inproceedings{song2021ddim
+ :                            ,
+I'm skipping whatever remains of this entry
+Repeated entry---line 467 of file refs.bib
+ : @article{stenning2024neuromorphic
+ :                                  ,
+I'm skipping whatever remains of this entry
 Warning--empty publisher in sohldickstein2015
-Warning--empty pages in song2021sde
 Warning--empty pages in song2021ddim
+Warning--empty pages in song2021sde
 Warning--empty pages in vaswani2017attention
 Warning--empty pages in kingma2015adam
 Warning--empty pages in loshchilov2017sgdr
-You've used 24 entries,
+You've used 23 entries,
             2952 wiz_defined-function locations,
-            806 strings with 10119 characters,
-and the built_in function-call counts, 8213 in all, are:
-= -- 680
-> -- 369
-< -- 7
-+ -- 139
-- -- 115
-* -- 572
-:= -- 1115
-add.period$ -- 28
-call.type$ -- 24
-change.case$ -- 21
+            812 strings with 10101 characters,
+and the built_in function-call counts, 8682 in all, are:
+= -- 747
+> -- 377
+< -- 10
++ -- 141
+- -- 118
+* -- 628
+:= -- 1162
+add.period$ -- 30
+call.type$ -- 23
+change.case$ -- 22
 chr.to.int$ -- 0
-cite$ -- 31
-duplicate$ -- 268
-empty$ -- 952
-format.name$ -- 135
-if$ -- 2121
+cite$ -- 29
+duplicate$ -- 288
+empty$ -- 971
+format.name$ -- 139
+if$ -- 2231
 int.to.chr$ -- 0
-int.to.str$ -- 24
-missing$ -- 27
+int.to.str$ -- 23
+missing$ -- 24
 newline$ -- 84
-num.names$ -- 24
-pop$ -- 197
+num.names$ -- 23
+pop$ -- 180
 preamble$ -- 1
 purify$ -- 0
 quote$ -- 0
-skip$ -- 544
+skip$ -- 578
 stack$ -- 0
-substring$ -- 364
-swap$ -- 65
-text.length$ -- 7
+substring$ -- 445
+swap$ -- 95
+text.length$ -- 10
 text.prefix$ -- 0
 top$ -- 0
 type$ -- 0
-warning$ -- 7
-while$ -- 54
-width$ -- 26
-write$ -- 212
-(There were 7 warnings)
+warning$ -- 6
+while$ -- 57
+width$ -- 25
+write$ -- 215
+(There were 6 error messages)

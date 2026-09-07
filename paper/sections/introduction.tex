@@ -1,49 +1,12 @@
 \section{Introduction}
 \label{sec:introduction}
 
-Many computational-physics problems require ensembles of trajectories. Thermal
-fluctuations, unresolved variables, uncertain initial conditions, and noisy forcing
-make future states random. When a stochastic differential equation (SDE) is known,
-numerical integration can generate the ensemble \cite{kloeden1992numerical}. When
-only measured trajectories are available, direct simulation is not possible.
-Repeated simulation can also be costly when the physical parameters vary.
+Many physical systems are intrinsically stochastic. Thermal fluctuations, environmental noise, unresolved degrees of freedom and random forcing mean that repeated experiments or simulations performed under nominally identical conditions need not produce the same trajectory. In such systems, the quantity of interest is therefore not generally a single time series, but a probability distribution over possible time series. Given a set of physical parameters or external controls $\mathbf{c}$, the modelling problem is to characterise the conditional trajectory distribution $p(\mathbf{x}_{0:T}\mid\mathbf{c}),$ including its fluctuations, temporal correlations, and other statistical properties.
 
-A surrogate for this task must model the conditional distribution of a full
-trajectory. It must preserve temporal correlations, marginal distributions, and
-dependence on the experimental inputs. Pointwise squared-error regression usually
-estimates a conditional mean and does not represent stochastic spread.
-Physics-informed neural networks and neural operators learn equation-constrained
-solutions or maps between functions \cite{raissi2019pinn,li2021fno,
-lu2021deeponet}. In their standard forms, they do not learn conditional
-distributions over complete stochastic paths.
+Numerical simulation provides a direct way to sample this distribution when the governing stochastic dynamics are known. It can, however, become expensive when large ensembles are required across many parameter values. This occurs routinely in uncertainty quantification, parameter studies, optimisation and inverse problems, where the simulator must be evaluated repeatedly. A deterministic surrogate is insufficient for these tasks: approximating a mean trajectory does not reproduce the distribution of fluctuations around it. This has motivated data-driven generative models for stochastic dynamics \cite{kidger2021neuralsde} \textcolor{red}{[More refs needed]}. More generally, simulation-based inference has demonstrated the value of amortising expensive simulation into learned statistical models when conventional likelihood-based inference is impractical \cite{cranmer2020frontier}.
 
-A diffusion model adds Gaussian noise to a trajectory and trains a neural network
-to predict that noise \cite{sohldickstein2015,ho2020ddpm}. Under the
-mean-squared-error objective, the noise predictor also defines a score estimate for
-the noisy data distribution \cite{vincent2011connection,song2021sde}.
-Conditioning on physical parameters or driving signals selects the trajectory
-distribution. Denoising diffusion implicit models (DDIMs) use the same denoiser
-with fewer reverse evaluations \cite{song2021ddim}. With $\eta=0$ and fixed
-initial noise, the DDIM update is deterministic. This property permits
-derivative-based inverse estimation.
+Diffusion models provide a direct way to learn distributions over trajectories without first identifying an explicit equation of motion. In a denoising diffusion probabilistic model (DDPM), clean training trajectories are progressively corrupted with Gaussian noise until they are nearly indistinguishable from random noise \cite{sohldickstein2015,ho2020ddpm}. During training, the neural network is given a noisy trajectory, the corresponding noise level, and any conditioning variables, and is trained to predict the noise that was added. Generation reverses this procedure: starting from Gaussian noise, the model repeatedly predicts and removes noise until a trajectory is obtained that follows the learned conditional distribution. The usual mean-squared-error noise-prediction objective is closely related to denoising score matching \cite{vincent2011connection,song2021sde}. Because the model acts on the complete time series, it learns the joint trajectory distribution rather than predicting each time point independently, allowing temporal correlations and stochastic variability to be retained.
 
-This paper presents \texttt{diffusionsde}, a package for one-dimensional time
-series. The call \texttt{DDPM()} constructs the model. The \texttt{fit} method
-uses trajectory--condition pairs, and \texttt{generate} samples trajectories for
-supplied conditions. The minimal example uses scalar data and the default
-trajectory length. \texttt{DiffusionConfig} controls the trajectory length,
-channel counts, noise schedule, and network settings.
+We introduce \texttt{diffusionsde}, a Python library for constructing conditional diffusion models of stochastic dynamical systems. A model is trained from obsderved trajectories and optional conditioning variables and learns an approximation to their conditional distribution, $p_{\theta}(\mathbf{q}_{0:T}\mid\mathbf{c}).$ After training, it can generate ensembles of trajectories within seconds for supplied conditions without rerunning the original stochastic simulator. The package implements denoising diffusion probabilistic model (DDPM) sampling and denoising diffusion implicit model (DDIM) sampling \cite{song2021ddim}. The library also exploits the differentiability of the generative model to support downstream tasks such as the inverse problem: given a set of trajectories, what was the conditioning signal that generated them?
 
-\begin{pythonlisting}
-from diffusionsde import DDPM
-
-model = DDPM()
-model.fit(train_dataset)
-samples = model.generate(conditioning, n_samples=64)
-\end{pythonlisting}
-
-Sections~\ref{sec:physical_problem} and \ref{sec:conditional_diffusion} define the
-data representation, the training objective evaluated by \texttt{fit}, and the
-reverse processes used by \texttt{generate}. Section~\ref{sec:examples} gives the
-numerical verification cases. The experimental systems then use the same
-representation and interface.
+\textcolor{red}{The paper is split into X.}

@@ -57,6 +57,14 @@ G.~E. Uhlenbeck, L.~S. Ornstein, On the theory of the {B}rownian motion, Physica
 \bibitem{guckenheimer1983nonlinear}
 J.~Guckenheimer, P.~Holmes, Nonlinear Oscillations, Dynamical Systems, and Bifurcations of Vector Fields, Springer, New York, 1983.
 
+\bibitem{ababei2021}
+R.~V. Ababei, M.~O.~A. Ellis, I.~T. Vidamour, D.~S. Devadasan, D.~A. Allwood, E.~Vasilaki, T.~J. Hayward, Neuromorphic computation with a single magnetic domain wall, Scientific Reports 11 (2021) 15587.
+\newblock \href {https://doi.org/10.1038/s41598-021-94975-y} {\path{doi:10.1038/s41598-021-94975-y}}.
+
+\bibitem{vansteenkiste2014mumax3}
+A.~Vansteenkiste, J.~Leliaert, M.~Dvornik, M.~Helsen, F.~Garcia-Sanchez, B.~Van~Waeyenberge, The design and verification of {MuMax3}, AIP Advances 4~(10) (2014) 107133.
+\newblock \href {https://doi.org/10.1063/1.4899186} {\path{doi:10.1063/1.4899186}}.
+
 \bibitem{dawidek2021}
 R.~W. Dawidek, T.~J. Hayward, I.~T. Vidamour, T.~J. Broomhall, G.~Venkat, M.~A. Mamoori, A.~Mullen, S.~J. Kyle, P.~W. Fry, N.-J. Steinke, J.~F.~K. Cooper, F.~Maccherozzi, S.~S. Dhesi, L.~Aballe, M.~Foerster, J.~Prat, E.~Vasilaki, M.~O.~A. Ellis, D.~A. Allwood, Dynamically driven emergence in a nanomagnetic system, Adv. Funct. Mater. 31 (2021) 2008389.
 \newblock \href {https://doi.org/10.1002/adfm.202008389} {\path{doi:10.1002/adfm.202008389}}.
