@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex out/main"] 1788768403.84779 "out/main.aux" "out/main.bbl" "out/main" 1788768405.64374 2
+["bibtex out/main"] 1788782345.44777 "out/main.aux" "out/main.bbl" "out/main" 1788782548.59553 2
   "./refs.bib" 1788722992.59206 17726 165d92963d5ce802660a9592c0585640 ""
   "/usr/local/texlive/2026/texmf-dist/bibtex/bst/elsarticle/elsarticle-num.bst" 1767996394 29462 dde4ec39bf78fded04ea32048bba0a74 ""
-  "out/main.aux" 1788768405.30321 11084 88cd7feb14b4946fac2e3f2236c2b273 "lualatex"
+  "out/main.aux" 1788782548.24606 15524 b69726e7f7537b1cff9f7bd06025edae "lualatex"
   (generated)
   "out/main.bbl"
   "out/main.blg"
   (rewritten before read)
-["lualatex"] 1788768403.94234 "main.tex" "out/main.pdf" "main" 1788768405.64383 0
+["lualatex"] 1788782546.74426 "main.tex" "out/main.pdf" "main" 1788782548.59562 0
   "/Users/jack/Library/texlive/2026/texmf-var/luatex-cache/generic/fonts/otl/lmroman12-bold.luc" 1786996229.40778 128299 e88a11083ed6d9ac103f9e63f3b663d2 ""
   "/Users/jack/Library/texlive/2026/texmf-var/luatex-cache/generic/fonts/otl/lmroman12-regular.luc" 1786996227.91104 127670 e9488709ecbb9088bc7e0315c96def49 ""
   "/Users/jack/Library/texlive/2026/texmf-var/luatex-cache/generic/fonts/otl/sourcecodepro-black.luc" 1787752856.73679 191258 e62a5ebbd3e53970ba8d05a2e9d6b233 ""
@@ -354,23 +354,25 @@
   "/usr/local/texlive/2026/texmf-var/web2c/luahbtex/lualatex.fmt" 1781429714 5656257 78da025ac9e74cd3f37618b187177f68 ""
   "amr.pdf" 1788346758 471012 5be321a471c00be59738f90249fecd82 ""
   "diffusion_highlevel.pdf" 1780656435.71579 21995 5e704292b857eba04184ff833c73f85a ""
-  "main.tex" 1788768040.20409 3838 48166732fe84778353faf16d4e0b21ae ""
+  "main.tex" 1788781184.15085 3864 9ab8e68603f1ebfe3c11af7f3cfe9f2b ""
   "out/../asi_mg.pdf" 1788767494.48279 67656 d02752ebe133811227c71f8f7d2ccf83 ""
   "out/../do_statistics.pdf" 1788767861.66784 409355 eab3eb04a7d70205de86d772159e7e41 ""
   "out/../do_trajectories.pdf" 1788767872.10124 378869 731718bde56b95d490835c4ebee64d50 ""
   "out/../dwo_statistics.pdf" 1788767905.77556 514255 c5f6b92a8b67c20a292e508d80ac2376 ""
   "out/../dwo_trajectories.pdf" 1788767926.90469 477784 84d2a265f4520dc6878fa750e4c563b7 ""
+  "out/../dwo_violins.pdf" 1788767968.31685 428870 59f7964d38234d6f9fcd52e61923f689 ""
   "out/../ou_statistics.pdf" 1788767806.46561 424541 ddf5d645bea6e65b660dbd6de79022ea ""
   "out/../ou_trajectories.pdf" 1788767829.9065 405836 36f4ea373ab75b5f6d572faea122cbd8 ""
-  "out/main.aux" 1788768405.30321 11084 88cd7feb14b4946fac2e3f2236c2b273 "lualatex"
-  "out/main.bbl" 1788768403.93605 5969 c752642f923f1ca6b07ce3519b3ddca8 "bibtex out/main"
-  "out/main.listing" 1788768405.19804 88 6a1d6d0095a5cf4b7768a6240f5dd981 "lualatex"
-  "out/main.out" 1788768405.30415 3803 4b1dbde57c75e7271c78579307d19a08 "lualatex"
-  "out/main.spl" 1788768404.25325 0 d41d8cd98f00b204e9800998ecf8427e "lualatex"
-  "sections/experimental.tex" 1788768401.94037 7789 38c9cceec7811eb7276d02273bd1568f ""
-  "sections/frontmatter.tex" 1788508516.03896 1438 bfc0b568eeda65d64e9315060af26908 ""
-  "sections/introduction.tex" 1788724791.35156 3632 8202115e8b6e2e37e8acb999846d3efb ""
-  "sections/numerical.tex" 1788768304.4087 31724 15feed01947ba04e2ff840d32f49fc54 ""
+  "out/main.aux" 1788782548.24606 15524 b69726e7f7537b1cff9f7bd06025edae "lualatex"
+  "out/main.bbl" 1788782345.53662 5451 02c96f9b427db30ee5894fb1c5af16a0 "bibtex out/main"
+  "out/main.listing" 1788782548.10019 88 6a1d6d0095a5cf4b7768a6240f5dd981 "lualatex"
+  "out/main.out" 1788782548.24699 3864 a2aef7764587b9863ad4651a959e8edf "lualatex"
+  "out/main.spl" 1788782547.0811 0 d41d8cd98f00b204e9800998ecf8427e "lualatex"
+  "sections/experimental.tex" 1788777925.44319 10332 c922877b8493fab48d91a34b4ac23e60 ""
+  "sections/formulation.tex" 1788782546.50209 24946 d3426e340cc763a0031263073948eac2 ""
+  "sections/frontmatter.tex" 1788781256.06392 1304 1f9b327e704fd538c46ee68fa683a2ed ""
+  "sections/introduction.tex" 1788781496.8393 3622 5d05b217dde431ee11b2f45959a1e023 ""
+  "sections/numerical.tex" 1788774203.37646 12773 c3dea18b02045fe8ff7de57d0d0d594a ""
   (generated)
   "out/main.aux"
   "out/main.listing"

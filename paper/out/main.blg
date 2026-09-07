@@ -15,10 +15,6 @@ Repeated entry---line 332 of file refs.bib
  : @article{vincent2011connection
  :                               ,
 I'm skipping whatever remains of this entry
-Repeated entry---line 343 of file refs.bib
- : @inproceedings{song2021sde
- :                           ,
-I'm skipping whatever remains of this entry
 Repeated entry---line 352 of file refs.bib
  : @inproceedings{song2021ddim
  :                            ,
@@ -29,49 +25,48 @@ Repeated entry---line 467 of file refs.bib
 I'm skipping whatever remains of this entry
 Warning--empty publisher in sohldickstein2015
 Warning--empty pages in song2021ddim
-Warning--empty pages in song2021sde
 Warning--empty pages in vaswani2017attention
 Warning--empty pages in kingma2015adam
 Warning--empty pages in loshchilov2017sgdr
-You've used 23 entries,
+You've used 21 entries,
             2952 wiz_defined-function locations,
-            812 strings with 10101 characters,
-and the built_in function-call counts, 8682 in all, are:
-= -- 747
-> -- 377
+            802 strings with 9704 characters,
+and the built_in function-call counts, 8002 in all, are:
+= -- 689
+> -- 348
 < -- 10
-+ -- 141
-- -- 118
-* -- 628
-:= -- 1162
-add.period$ -- 30
-call.type$ -- 23
-change.case$ -- 22
++ -- 130
+- -- 109
+* -- 572
+:= -- 1071
+add.period$ -- 27
+call.type$ -- 21
+change.case$ -- 20
 chr.to.int$ -- 0
-cite$ -- 29
-duplicate$ -- 288
-empty$ -- 971
-format.name$ -- 139
-if$ -- 2231
+cite$ -- 26
+duplicate$ -- 269
+empty$ -- 891
+format.name$ -- 128
+if$ -- 2059
 int.to.chr$ -- 0
-int.to.str$ -- 23
-missing$ -- 24
-newline$ -- 84
-num.names$ -- 23
-pop$ -- 180
+int.to.str$ -- 21
+missing$ -- 22
+newline$ -- 77
+num.names$ -- 21
+pop$ -- 165
 preamble$ -- 1
 purify$ -- 0
 quote$ -- 0
-skip$ -- 578
+skip$ -- 537
 stack$ -- 0
-substring$ -- 445
-swap$ -- 95
+substring$ -- 408
+swap$ -- 92
 text.length$ -- 10
 text.prefix$ -- 0
 top$ -- 0
 type$ -- 0
-warning$ -- 6
-while$ -- 57
-width$ -- 25
-write$ -- 215
-(There were 6 error messages)
+warning$ -- 5
+while$ -- 53
+width$ -- 23
+write$ -- 197
+(There were 5 error messages)

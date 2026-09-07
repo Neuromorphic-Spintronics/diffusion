@@ -1,641 +1,153 @@
 % ===========================================================================
-% Problem formulation and package interface
+% Numerical verification
 % ===========================================================================
 
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=0.8\textwidth]{diffusion_highlevel.pdf}
-    \caption{Conditional diffusion model for stochastic trajectories. Training
-    samples a clean trajectory, adds Gaussian noise at a selected diffusion
-    level, and trains the denoiser to predict the added noise. Generation starts
-    from Gaussian noise and applies the trained denoiser repeatedly to obtain a
-    trajectory conditioned on $\mathbf{c}$. The diffusion index $k$ is distinct
-    from the physical-time coordinate of the trajectory.}
-    \label{fig:diffusion_highlevel}
-\end{figure}
+\section{Numerical verification}
+\label{sec:numerical}
 
-\section{Problem formulation}
-\label{sec:physical_problem}
-\subsection{Statement of the physical problem}
+We first test \texttt{diffusionsde} on two stochastic systems for which independent numerical reference solutions are available. The examples are chosen to separate increasingly difficult aspects of the modelling problem. The Ornstein--Uhlenbeck process is linear and Gaussian, with known stationary statistics, and therefore provides a controlled test of whether the model reproduces stochastic fluctuations and temporal correlations. The driven Duffing oscillator introduces nonlinear dynamics, a bistable potential, coloured forcing, and an initial velocity that is deliberately hidden from the diffusion model. It therefore tests whether the model can represent a nontrivial conditional distribution rather than reconstructing a trajectory from a fully specified state.
 
-Consider a stochastic dynamical system with state $\mathbf{x}(t)\in\mathbb{R}^m$ governed by
-\begin{equation}
-    \mathrm{d}x_i
-    =
-    f_i(\mathbf{x},t;\boldsymbol{\lambda})\,\mathrm{d}t
-    +
-    \sum_{j=1}^{m_W}
-    G_{ij}(\mathbf{x},t;\boldsymbol{\lambda})\,\mathrm{d}W_j,
-    \qquad
-    i=1,\ldots,m ,
-    \label{eq:generic_sde_component}
-\end{equation}
-or, in vector form, $\mathrm{d}\mathbf{x}=\mathbf{f}(\mathbf{x},t;\boldsymbol{\lambda})\,\mathrm{d}t+\mathbf{G}(\mathbf{x},t;\boldsymbol{\lambda})\,\mathrm{d}\mathbf{W}.$
-Here $\mathbf{f}$ is the drift, $\boldsymbol{\lambda}$ denotes physical parameters, $\mathbf{G}\in\mathbb{R}^{m\times m_W}$ is the diffusion matrix, and $\mathbf{W}(t)\in\mathbb{R}^{m_W}$ contains $m_W$ independent Wiener processes. State-independent $\mathbf{G}$ gives additive noise and state-dependent $\mathbf{G}$ gives multiplicative noise. The examples in this paper use additive noise. Coloured noise can be included by augmenting the state with an additional stochastic variable, as in the Duffing oscillator of Section~\ref{ssec:duffing}.
+The magnetic systems considered in Section~\ref{sec:experimental} extend this hierarchy further, replacing low-dimensional stochastic equations by stochastic micromagnetic simulations and, finally, experimental measurements for which no complete dynamical model is assumed.
 
-The package does not attempt to infer $\mathbf{f}$ or $\mathbf{G}$ (which is a divergence from e.g., a neural SDE). Instead, it learns the distribution of sampled trajectories produced by the stochastic system. The generated quantity is an approximation of a continuous trajectory $q(t)$. Sampling it at $N_T$ physical-time points gives the vector representation $\mathbf{q}^{(s)} = \left( q^{(s)}_0,\ldots,q^{(s)}_{N_T-1} \right) \in\mathbb{R}^{N_T}$, where $s=1,\ldots,N_S$, for an ensemble of $N_S$ realisations.
-
-Each trajectory may also be associated with a conditioning vector $\mathbf{c}^{(s)}\in\mathbb{R}^{N_T}.$ The conditioning vector has the same length as the trajectory because it is supplied to the denoiser alongside the trajectory. It may represent a constant physical parameter, initial conditions stored in its leading entries and padded with zeros, or a time-dependent driving signal. If no physical conditioning is required, an empty conditioning vector can be used.
-
-The physical system therefore defines a conditional trajectory distribution $\mathbf{q}\sim p_{\mathrm{data}}(\mathbf{q}\mid\mathbf{c}).$ The model learns $p_\phi(\mathbf{q}\mid\mathbf{c}) \approx p_{\mathrm{data}}(\mathbf{q}\mid\mathbf{c}),$ where $\phi$ denotes the trainable network parameters.
-
-\subsection{Minimal package interface}
-Training data are stored as a PyTorch dataset containing trajectory--condition pairs:
-
-\begin{pythonlisting}
-from torch.utils.data import TensorDataset
-
-train_dataset = TensorDataset(
-    trajectories,
-    conditioning,
-)
-\end{pythonlisting}
-
-We observe more reliable training and inference when trajectories and conditioning variables are standardised. The library provides the corresponding standardisation and inverse-standardisation utilities.
-
-The complete model interface is
-
-\begin{pythonlisting}
-from diffusionsde import DDPM
-
-model = DDPM() # assuming default parameters are used
-history = model.fit(train_dataset)
-samples = model.generate(conditioning)
-\end{pythonlisting}
-
-The remainder of this section is structured around these two operations. In \texttt{model.fit()}, Gaussian noise is added to a clean trajectory and the network learns to predict that noise from the corrupted trajectory, its diffusion index, and the condition. In \texttt{model.generate()}, the trained network is used repeatedly to transform Gaussian noise into a clean trajectory that looks similar to the training data.
-
-
-\subsection{Training with \texttt{model.fit}}
-\label{ssec:fit}
-
-\subsubsection{Forward diffusion}
-
-Diffusion introduces an artificial index $k$ that is distinct from physical time $t$. Where appropriate, we will refer to $k$ as the `algorithmic time'. Let $N_K$ be the number of diffusion steps, with $k=0$ denoting clean data. At each step, $\beta_k$ specifies the variance of the Gaussian noise introduced by that step. It is useful to define the related quantities $\alpha_k = 1-\beta_k$,  $\alphabar_k= \prod_{\ell=1}^{k}\alpha_\ell,$ and $\alphabar_0=1,$ where $\alpha_k$ is the fraction of signal variance retained in one forward step, while $\alphabar_k$ is the corresponding fraction retained after $k$ steps. Consequently, $\sqrt{\alphabar_k}$ determines the contribution of the original trajectory after $k$ steps and $1-\alphabar_k$ gives the accumulated noise variance.
-
-The implementation uses a literature-standard linear schedule
-\begin{equation}
-    \beta_k
-    =
-    \beta_1
-    +
-    \frac{k-1}{N_K-1}
-    \left(
-        \beta_{N_K}-\beta_1
-    \right),
-    \qquad
-    k=1,\ldots,N_K,
-    \label{eq:beta_schedule}
-\end{equation}
-where
-$0<\beta_1\leq\beta_{N_K}<1$. The forward transition is
-\begin{equation}
-    \mathbf{q}_k
-    =
-    \sqrt{\alpha_k}\,\mathbf{q}_{k-1}
-    +
-    \sqrt{\beta_k}\,\boldsymbol{\varepsilon}_k,
-    \qquad
-    \boldsymbol{\varepsilon}_k
-    \sim
-    \Normal(\mathbf{0},\mathsf{I}).
-    \label{eq:forward_step}
-\end{equation}
-Successive steps reduce the contribution from the original trajectory and increase the Gaussian component.
-
-Because the forward process is Gaussian, its marginal distribution is known analytically:
-\begin{equation}
-    p_{\mathrm{fwd}}
-    (\mathbf{q}_k\mid\mathbf{q}_0)
-    =
-    \Normal\!\left(
-        \mathbf{q}_k;
-        \sqrt{\alphabar_k}\,\mathbf{q}_0,
-        (1-\alphabar_k)\mathsf{I}
-    \right).
-    \label{eq:forward_marginal_density}
-\end{equation}
-A sample at any diffusion level can therefore be obtained directly as
-\begin{equation}
-    \mathbf{q}_k
-    =
-    \sqrt{\alphabar_k}\,\mathbf{q}_0
-    +
-    \sqrt{1-\alphabar_k}\,
-    \boldsymbol{\varepsilon},
-    \qquad
-    \boldsymbol{\varepsilon}
-    \sim
-    \Normal(\mathbf{0},\mathsf{I}).
-    \label{eq:forward_marginal}
-\end{equation}
-There is no need to evaluate the preceding $k-1$ forward steps during training.
-
-\subsubsection{Noise-prediction objective}
-
-For each training pair $(\mathbf{q}_0,\mathbf{c})$,
-\texttt{model.fit} samples $ k\sim\mathrm{Unif}\{1,\ldots,N_K\}$, where $\boldsymbol{\varepsilon}\sim\Normal(\mathbf{0},\mathsf{I}),$ constructs $\mathbf{q}_k$ using Eq.~\eqref{eq:forward_marginal}, and passes $(\mathbf{q}_k,k,\mathbf{c})$ to the denoiser. The network output $\boldsymbol{\varepsilon}_\phi(\mathbf{q}_k,k,\mathbf{c}) $ is an estimate of the noise that was added at that denoising step.\footnote{The noise predictor is related to the score of the noisy trajectory distribution
-\cite{hyvarinen2005score,vincent2011connection}. From
-Eq.~\eqref{eq:forward_marginal_density},
-\begin{equation}
-    \nabla_{\mathbf{q}_k}
-    \log
-    p_{\mathrm{fwd}}
-    (\mathbf{q}_k\mid\mathbf{q}_0)
-    =
-    -
-    \frac{
-        \boldsymbol{\varepsilon}
-    }{
-        \sqrt{1-\alphabar_k}
-    }.
-    \label{eq:conditional_score}
-\end{equation}
-The conditional distribution of noisy trajectories is
-\begin{equation}
-    p_k(\mathbf{q}_k\mid\mathbf{c})
-    =
-    \int
-    p_{\mathrm{fwd}}
-    (\mathbf{q}_k\mid\mathbf{q}_0)
-    p_{\mathrm{data}}
-    (\mathbf{q}_0\mid\mathbf{c})
-    \,\mathrm{d}\mathbf{q}_0.
-    \label{eq:conditional_noisy_density}
-\end{equation}
-For the MSE objective, the optimal noise predictor is $\E[ \boldsymbol{\varepsilon} \mid \mathbf{q}_k,\mathbf{c}]$, giving
-\begin{equation}
-    -
-    \frac{
-        \boldsymbol{\varepsilon}_\phi
-        (\mathbf{q}_k,k,\mathbf{c})
-    }{
-        \sqrt{1-\alphabar_k}
-    }
-    \approx
-    \nabla_{\mathbf{q}_k}
-    \log
-    p_k(\mathbf{q}_k\mid\mathbf{c}).
-    \label{eq:data_score}
-\end{equation}
-Thus MSE noise prediction also estimates the conditional score at each diffusion level.}
-
-
-The default training objective is
-\begin{equation}
-    \mathcal{L}(\phi)
-    =
-    \E\left[
-        \frac{1}{N_T}
-        \left\|
-            \boldsymbol{\varepsilon}
-            -
-            \boldsymbol{\varepsilon}_\phi
-            (\mathbf{q}_k,k,\mathbf{c})
-        \right\|_2^2
-    \right].
-    \label{eq:noise_objective}
-\end{equation}
-The expectation is estimated over minibatches using a Monte Carlo estimate. 
-
-\subsubsection{Denoising network}
-
-The denoiser is a one-dimensional residual U-Net \cite{ronneberger2015unet}. A U-Net applies the same encoder--decoder structure used in autoencoders, but applied to a time series, with one-dimensional convolutions acting along physical time. Transformer denoisers are common in larger/modern diffusion models \cite{peebles2023dit}; the implementation considered here uses a convolutional U-Net.
-
-For a minibatch of size $B$, $\mathbf{q}_k,\mathbf{c}\in\mathbb{R}^{B\times1\times N_T}.$ The trajectory and condition are concatenated along the channel dimension, giving an input of shape $B\times2\times N_T$.
-
-The encoder processes this input at progressively lower temporal resolutions. Each downsampling operation reduces the number of physical-time positions and increases the number of feature channels. A bottleneck operates at the lowest resolution. The decoder then restores the original temporal resolution. Skip connections pass encoder features directly to the corresponding decoder levels. The final convolution produces $\boldsymbol{\varepsilon}_\phi(\mathbf{q}_k,k,\mathbf{c})$ with the same shape as the noisy trajectory.
-
-The main computational unit is a residual block \cite{he2016residual}. Each block contains two one-dimensional convolutions, group normalisation \cite{wu2018groupnorm}, and SiLU activation, $\mathrm{SiLU}(x)=x\sigma(x)$. In simplified form,
-
-\begin{pythonlisting}
-def forward(self, x, time_emb):
-    h = self.conv1(x)
-    h = self.norm1(h)
-    h = self.act(h)
-
-    time_emb = self.time_mlp(time_emb)[:, :, None]
-    h = h + time_emb
-
-    h = self.conv2(h)
-    h = self.norm2(h)
-    h = self.act(h)
-
-    return h
-\end{pythonlisting}
-
-\paragraph{Diffusion-step embedding}
-
-The network must know the diffusion index because the required denoising
-correction depends on the noise level. The scalar index $k$ is first mapped to a
-fixed $D_T$-dimensional sinusoidal representation. For
-$j=0,\ldots,D_T/2-1$,
-\begin{equation}
-    \omega_j
-    =
-    \exp\left[
-        -\frac{
-            j\log(10^4)
-        }{
-            D_T/2-1
-        }
-    \right],
-\end{equation}
-and
-\begin{equation}
-    \mathbf{e}(k)
-    =
-    \left[
-        \sin(k\omega_0),
-        \ldots,
-        \sin(k\omega_{D_T/2-1}),
-        \cos(k\omega_0),
-        \ldots,
-        \cos(k\omega_{D_T/2-1})
-    \right].
-    \label{eq:diffusion_step_encoding}
-\end{equation}
-This is the same form of sinusoidal encoding used for transformer positions
-\cite{vaswani2017attention}. It provides fixed features that vary over different
-scales in $k$.
-
-The encoding is then passed through a learned multi-layer perceptron,
-\begin{equation}
-    \boldsymbol{\tau}_k
-    =
-    \mathrm{Linear}_{D_T}
-    \left[
-        \mathrm{SiLU}
-        \left(
-            \mathrm{Linear}_{2D_T}
-            [\mathbf{e}(k)]
-        \right)
-    \right],
-    \label{eq:diffusion_step_embedding}
-\end{equation}
-with dimensions $D_T \to 2D_T \to D_T$.
-
-The vector $\boldsymbol{\tau}_k$ is the learned diffusion-step embedding. Each residual block applies its own linear projection to $\boldsymbol{\tau}_k$ so that its dimension matches the number of feature channels in that block. The projected vector is added between the two convolutions. The diffusion index therefore affects every residual block of the U-Net.
-
-\paragraph{Dilated convolutions}
-
-Residual-block convolutions may also be dilated. For a kernel of size three, an ordinary convolution at physical-time index $n$ uses the inputs $n-1$, $n$, and $n+1$, whereas dilation $d$ uses $n-d$, $n$, $n+d$. The same number of kernel parameters is used in both cases. Dilation therefore increases the temporal range represented by a convolution without increasing the number of trainable, convolution weights.
-
-The dilation factor is specified independently at each U-Net level:
-
-\begin{pythonlisting}
-if dilation_schedule is None:
-    dilation_schedule = [1] * n_layers
-
-for i in range(n_layers):
-    d = dilation_schedule[i]
-
-    block = ResidualBlock(
-        in_ch,
-        out_ch,
-        time_emb_dim,
-        dilation=d,
-    )
-\end{pythonlisting}
-
-Dilation is used only in the residual blocks; the initial, downsampling, upsampling, and final convolutions use $d=1$.
-
-It is our empirical observation that very long time series---especially those with long-time-correlated noise---train more reliably when dilation is used, since the network can represent long-range correlations without requiring a large number of downsampling levels.
-
-\subsubsection{Model defaults}
-
-Training uses Adam \cite{kingma2015adam}, cosine learning-rate annealing \cite{loshchilov2017sgdr}, shuffled minibatches, and clipping of the global gradient norm to unity. If validation data are supplied, the parameter set with the lowest validation loss is restored after training.
-
-Table~\ref{tab:config} lists the principal defaults for \texttt{DDPM()}.
-
-\begin{table}[t]
-    \centering
-    \caption{Selected \texttt{DiffusionConfig} defaults.}
-    \label{tab:config}
-    \small
-    \begin{tabular}{@{}lll@{}}
-        \toprule
-        Group & Entry & Default \\
-        \midrule
-        Diffusion & steps $N_K$ & $1000$ \\
-        Diffusion & $(\beta_1,\beta_{N_K})$ & $(10^{-4},0.02)$ \\
-        Data & trajectory length & $250$ \\
-        Architecture & hidden width & $128$ \\
-        Architecture & encoder levels & $4$ \\
-        Optimisation & learning rate & $10^{-4}$ \\
-        Optimisation & batch size, epochs & $32$, $50$ \\
-        Loss & form & MSE; Huber optional \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-Model checkpoints store the configuration and fitted network weights. \texttt{DDPM.load} restores these quantities for generation, using the checkpoint with the lowest validation loss (if available), as a form of early stopping.
-
-\subsection{Generation with \texttt{generate}}
-\label{ssec:generate}
-
-Training provides an estimate of the noise present in a trajectory at each diffusion level. Generation uses this estimate to remove noise in an iterative process.
-
-From Eq.~\eqref{eq:forward_marginal},
-\begin{equation}
-    \mathbf{q}_{N_K}
-    =
-    \sqrt{\alphabar_{N_K}}\,
-    \mathbf{q}_0
-    +
-    \sqrt{1-\alphabar_{N_K}}\,
-    \boldsymbol{\varepsilon}.
-\end{equation}
-The schedule is chosen such that $\alphabar_{N_K}\ll1$, so the terminal distribution is approximately $\mathbf{q}_{N_K}\sim\Normal(\mathbf{0},\mathsf{I}).$ Generation therefore starts from Gaussian noise and repeatedly applies the denoiser.
-
-\subsubsection{DDPM sampling}
-At step $k$, the network predicts $\boldsymbol{\varepsilon}_\phi(\mathbf{q}_k,k,\mathbf{c}). $ For the Gaussian forward process, the reverse transition is
-\begin{equation}
-    p_\phi(
-        \mathbf{q}_{k-1}
-        \mid
-        \mathbf{q}_k,\mathbf{c}
-    )
-    =
-    \Normal\!\left(
-        \mathbf{q}_{k-1};
-        \boldsymbol{\mu}_\phi
-        (\mathbf{q}_k,k,\mathbf{c}),
-        \widetilde{\beta}_k\mathsf{I}
-    \right),
-    \label{eq:ddpm_reverse_density}
-\end{equation}
-with
-\begin{equation}
-    \boldsymbol{\mu}_\phi
-    (\mathbf{q}_k,k,\mathbf{c})
-    =
-    \frac{1}{\sqrt{\alpha_k}}
-    \left[
-        \mathbf{q}_k
-        -
-        \frac{
-            \beta_k
-        }{
-            \sqrt{1-\alphabar_k}
-        }
-        \boldsymbol{\varepsilon}_\phi
-        (\mathbf{q}_k,k,\mathbf{c})
-    \right],
-    \label{eq:ddpm_reverse_mean}
-\end{equation}
-and
-\begin{equation}
-    \widetilde{\beta}_k
-    =
-    \beta_k
-    \frac{
-        1-\alphabar_{k-1}
-    }{
-        1-\alphabar_k
-    }.
-    \label{eq:ddpm_reverse_variance}
-\end{equation}
-
-The mean gives the deterministic part of the reverse update. A Gaussian term
-with variance $\widetilde{\beta}_k$ is then added. The implementation is
-equivalent to
-
-\begin{pythonlisting}
-predicted_noise = self.model(x_t, t, conditioning)
-
-mean = ( x_t - beta * predicted_noise / torch.sqrt(1.0 - alpha_cumprod) ) / torch.sqrt(alpha)
-
-if t > 0:
-    noise = torch.randn_like(x_t)
-    x_t = ( mean + torch.sqrt(posterior_variance) * noise )
-else:
-    x_t = mean
-\end{pythonlisting}
-
-An ancestral DDPM sample evaluates all $N_K$ reverse levels. No additional noise is added in the final transition because $\widetilde{\beta}_1=0$.
-
-\subsubsection{DDIM sampling}
-
-The package also implements denoising diffusion implicit model (DDIM) sampling \cite{song2021ddim}. DDIM uses the same trained network but can evaluate only a subset of the diffusion levels---requiring fewer U-Net evaluations. The selected diffusion levels are $\kappa_0 > \kappa_1 > \cdots > \kappa_{S-1} \geq1$, with $\kappa_S=0$. The choice of $S$ is problem-specific and should be treated as a hyperparameter. 
-
-At diffusion level $\kappa_j$, the predicted noise gives an estimate of the clean trajectory,
-\begin{equation}
-    \widehat{\mathbf{q}}_0
-    =
-    \frac{
-        \mathbf{q}_{\kappa_j}
-        -
-        \sqrt{
-            1-\alphabar_{\kappa_j}
-        }\,
-        \boldsymbol{\varepsilon}_\phi
-        (
-            \mathbf{q}_{\kappa_j},
-            \kappa_j,
-            \mathbf{c}
-        )
-    }{
-        \sqrt{\alphabar_{\kappa_j}}
-    }.
-    \label{eq:ddim_q0}
-\end{equation}
-The next selected diffusion level is
-\begin{align}
-    \sigma_j
-    &=
-    \eta
-    \sqrt{
-        \frac{
-            1-\alphabar_{\kappa_{j+1}}
-        }{
-            1-\alphabar_{\kappa_j}
-        }
-    }
-    \sqrt{
-        1-
-        \frac{
-            \alphabar_{\kappa_j}
-        }{
-            \alphabar_{\kappa_{j+1}}
-        }
-    },
-    \label{eq:ddim_sigma}
-    \\
-    \mathbf{q}_{\kappa_{j+1}}
-    &=
-    \sqrt{
-        \alphabar_{\kappa_{j+1}}
-    }\,
-    \widehat{\mathbf{q}}_0
-    +
-    \sqrt{
-        1
-        -
-        \alphabar_{\kappa_{j+1}}
-        -
-        \sigma_j^2
-    }\,
-    \boldsymbol{\varepsilon}_\phi
-    (
-        \mathbf{q}_{\kappa_j},
-        \kappa_j,
-        \mathbf{c}
-    )
-    +
-    \sigma_j\mathbf{z}_j,
-    \qquad
-    \mathbf{z}_j
-    \sim
-    \Normal(\mathbf{0},\mathsf{I}).
-    \label{eq:ddim_update}
-\end{align}
-
-The first term contains the estimated clean trajectory. The second gives the noise component required at the next selected diffusion level. The final term adds new Gaussian noise when $\eta>0$.
-
-The DDIM reverse process permits deterministic sampling, i.e., $\eta=0$, $\sigma_j=0$ at every step. Different initial Gaussian samples still generate different trajectories. In all examples in this work, we use deterministic sampling. 
-
-We still train the model with the full $N_K=1000$ diffusion levels, but use $S=200$ DDIM levels during generation. The distinction is therefore that DDPM is a training algorithm and DDIM is a sampling algorithm.
-
-With DDIM and $\eta=0$, fixing both \texttt{initial\_noise} and the condition makes the generated trajectory deterministic. This is used by the differentiable inverse method described in Section~\ref{ssec:inverse}. Setting \texttt{require\_grad=True} retains the automatic-differentiation graph through the DDIM sampler; \texttt{grad\_steps} can restrict this graph to a subset of the reverse steps to reduce memory use in downstream tasks.
-
-\subsection{Differentiable inverse estimation}
-\label{ssec:inverse}
-
-A trained diffusion model can also be used for parameter estimation. Consider an observed ensemble of trajectories generated by a stochastic system with an unknown scalar parameter $p$. If the diffusion model has been trained with $p$ as a conditioning variable, we can vary $p$ until the generated ensemble agrees with the observations.
-
-The important point is that DDIM generation is differentiable with respect to the conditioning input. We therefore treat $p$ as an optimisation variable, generate trajectories conditioned on its current value, calculate a loss between the generated and observed ensembles, and backpropagate that loss through the complete generation process. The fitted U-Net is not updated during this procedure; only $p$ is optimised.
-
-The inverse calculation uses deterministic DDIM generation. The model is first frozen,
-
-\begin{pythonlisting}
-model.freeze()
-\end{pythonlisting}
-which disables gradients with respect to the U-Net parameters while retaining differentiation with respect to its inputs. For each optimisation run, the solver also draws an initial Gaussian ensemble once and holds it fixed throughout the optimisation.
-
-With DDIM and $\eta=0$, fixing the initial noise removes random variation between successive evaluations of the objective. Changes in the generated trajectories during optimisation are then only caused by changes in $p$, rather than by drawing a different initial Gaussian sample.
-
-The inverse solver compares the generated and observed ensembles through their time-dependent means and variances. In the implementation this is
-
-\begin{pythonlisting}
-loss = moment_matching_loss(
-    generated,
-    observed,
-    mean_weight=mean_weight,
-    variance_weight=variance_weight,
-)
-\end{pythonlisting}
-where \texttt{moment\_matching\_loss} computes the mean and variance across the ensemble at each physical-time point and applies a mean-squared error to the two resulting curves. The two contributions can be weighted independently. This loss does not compare temporal correlations or power spectra and therefore does not, by itself, test all properties of the trajectory distribution, and future work may extend this approach.
-
-Because \texttt{generated} retains its automatic-differentiation graph, the derivative of the loss with respect to $p$ is obtained by ordinary backpropagation:
-
-\begin{pythonlisting}
-optimiser.zero_grad()
-loss.backward()
-optimiser.step()
-\end{pythonlisting}
-
-The gradient passes from the ensemble loss, through every generated trajectory, through the DDIM reverse steps and U-Net evaluations, and finally to the conditioning parameter $p$. Gradients are computed using Adam.
-
-The complete calculation is provided by \texttt{InverseProblem}. For example,
-
-\begin{pythonlisting}
-from diffusionsde import (
-    InverseProblem,
-    InverseProblemConfig,
-)
-
-model.freeze()
-
-inverse = InverseProblem(
-    model,
-    observed,
-    condition_from_parameter,
-    parameter_range=(p_min, p_max),
-    config=InverseProblemConfig(
-        n_iterations=100,
-        lr=0.05,
-        n_gen=64,
-    ),
-)
-
-result = inverse.solve(
-    n_runs=8,
-    return_trajectories=True,
-)
-
-p_estimates = result.estimates
-\end{pythonlisting}
-
-Here \texttt{observed} has shape \texttt{[n\_observed, n\_time]}. At each optimisation iteration the solver generates \texttt{n\_gen} trajectories at the current value of $p$, computes the moment-matching loss, backpropagates through the generator, and updates $p$ by gradient descent. Each run starts from an independently chosen parameter value and an independently drawn, but subsequently fixed, Gaussian ensemble.
-
-The parameter may be optimised directly in physical units or through the \texttt{sigmoid\_bounded} parameterisation. In the latter case the optimiser acts on an unconstrained variable that is mapped smoothly into the supplied interval $(p_{\min},p_{\max})$. We observe more reliable convergence when using the sigmoid-bounded parameterisation. The solver can also return the parameter value with the lowest loss encountered during each run rather than simply the final iterate, as a form of early stopping.
-
-Backpropagating through every DDIM step can require substantial memory. The \texttt{grad\_steps} option restricts automatic differentiation to a subset of the reverse steps:
-
-\begin{pythonlisting}
-config = InverseProblemConfig(
-    n_iterations=100,
-    n_gen=64,
-    grad_steps=20,
-)
-\end{pythonlisting}
-This reduces memory use and computation time. \texttt{grad\_steps} should be tretated as a hyperparameter to be tuned for each problem. For example, the OU process of Section~\ref{ssec:ou} uses \texttt{grad\_steps\sim100}, while the Duffing oscillator of Section~\ref{ssec:duffing} uses \texttt{grad\_steps\sim10}.
-
-\section{Ornstein--Uhlenbeck}
-\label{sec:examples}
-
-We test the model on two stochastic systems. The Ornstein--Uhlenbeck process provides an analytically tractable example for which the stationary distribution and autocorrelation are known. The driven Duffing oscillator provides a nonlinear example with stochastic forcing and no closed-form trajectory distribution. In both cases the model is trained with \texttt{fit} and held-out trajectories are generated with \texttt{generate}.
-
+% ---------------------------------------------------------------------------
 \subsection{Ornstein--Uhlenbeck process}
 \label{ssec:ou}
 
-The Ornstein--Uhlenbeck (OU) process \cite{uhlenbeck1930} is
+The Ornstein--Uhlenbeck (OU) process \cite{uhlenbeck1930} is the simplest stochastic system considered in this work. It obeys
 \begin{equation}
-    \mathrm{d}q=-\theta q\,\mathrm{d}t+\sqrt{2D}\,\mathrm{d}W,
+    \mathrm{d}q
+    =
+    -\theta q\,\mathrm{d}t
+    +
+    \sqrt{2D}\,\mathrm{d}W,
     \label{eq:ou}
 \end{equation}
-where $\theta>0$ is the relaxation rate and $D>0$ is the diffusion coefficient. Its stationary distribution and normalised autocorrelation are, respectively,
+where $\theta>0$ is the relaxation rate and $D>0$ is the diffusion coefficient. Its stationary distribution and normalised autocorrelation are
 \begin{equation}
-    q\sim\Normal\!\left(0,\frac{D}{\theta}\right),
+    q
+    \sim
+    \Normal\!\left(0,\frac{D}{\theta}\right),
     \qquad
-    \rho(\tau)=\exp(-\theta|\tau|).
+    \rho(\tau)
+    =
+    \exp(-\theta|\tau|).
     \label{eq:ou_continuous_stationary}
 \end{equation}
-These results provide separate tests of the fluctuation amplitude and temporal correlation learned by the diffusion model.
+The parameters $D$ and $\theta$ therefore control different properties of the trajectories: $D/\theta$ determines their stationary variance, while $\theta^{-1}$ sets the correlation time. The OU process consequently provides a useful test that the diffusion model has learnt more than the marginal scale of the data.
 
-The trajectories used for training are generated with Euler--Maruyama,
+Reference trajectories are generated using Euler--Maruyama,
 \begin{equation}
-    q_{n+1}=(1-\theta\Delta t)q_n+\sqrt{2D\Delta t}\,z_n,
+    q_{n+1}
+    =
+    (1-\theta\Delta t)q_n
+    +
+    \sqrt{2D\Delta t}\,z_n,
     \qquad
     z_n\sim\Normal(0,1).
     \label{eq:ou_euler_update}
 \end{equation}
-At finite $\Delta t$, this discrete process has stationary variance and lag-$h$ autocorrelation
+At finite $\Delta t$, the corresponding discrete process has stationary variance and lag-$h$ autocorrelation
 \begin{equation}
-    \operatorname{Var}(q_n)=\frac{2D\Delta t}{1-(1-\theta\Delta t)^2},
+    \operatorname{Var}(q_n)
+    =
+    \frac{2D\Delta t}
+    {1-(1-\theta\Delta t)^2},
     \qquad
-    \rho_\Delta(h)=(1-\theta\Delta t)^h.
+    \rho_\Delta(h)
+    =
+    (1-\theta\Delta t)^h,
     \label{eq:ou_discrete_stationary}
 \end{equation}
-Both expressions converge to the continuous-time results in Eq.~\eqref{eq:ou_continuous_stationary} as $\Delta t\rightarrow0$.
+respectively. These approach Eq.~\eqref{eq:ou_continuous_stationary} as $\Delta t\rightarrow0$.
 
-The notebook samples $\theta\sim\mathcal{U}(0.8,3.0)$ and $D\sim\mathcal{U}(0.1,1.5)$. Each simulation uses $\Delta t=5/256$, discards 1024 initial steps, and retains $N_T=256$ samples. The training set contains 512 trajectories and the held-out set contains 128. Trajectories and the two conditioning parameters are standardised using statistics calculated from the training set. The model uses 1000 forward diffusion steps and 200 DDIM steps for generation.
+For the dataset, we sample $\theta\sim\mathcal{U}(0.8,3.0)$ and $D\sim\mathcal{U}(0.1,1.5)$. The training and held-out datasets contain 512 and 128 trajectories, respectively. Both $\theta$ and $D$ are supplied to the diffusion model as conditioning variables. Trajectories and conditioning variables are standardised using statistics calculated from the training set. The model is trained with $N_K=1000$ diffusion levels and generated using around 128 deterministic DDIM steps. 
 
-The test set contains parameter values that are not used for fitting. For each held-out pair $(\theta,D)$, one reference trajectory and one generated trajectory are obtained. The comparison is therefore made over the full set of held-out conditions rather than from repeated sampling at a single value of $(\theta,D)$. We compare the generated and reference trajectories through their marginal distribution and autocorrelation, with Eqs.~\eqref{eq:ou_continuous_stationary} and \eqref{eq:ou_discrete_stationary} providing analytical references. At large lags, the empirical autocorrelation is affected by the finite trajectory length and by estimating and subtracting the mean of each trajectory; the same estimator is therefore applied to the reference and generated ensembles.
+The OU process is non-trivial for the diffusion model: the trajectories are inherently stochastic, and the diffusion model must learn to `denoise' a standard Gaussian distribution to a Gaussian distribution with variance $D/\theta$ and temporal correlations set by $\theta$. \textcolor{red}{Figure [X] shows the a comparison (?) as a function of the number of DDIM steps.}
 
+The held-out parameter pairs are not used during training. We generate one trajectory for each held-out pair $(\theta,D)$ and compare the resulting ensemble with the corresponding numerical reference ensemble. This test therefore measures interpolation across the two-dimensional parameter distribution rather than repeated sampling at a single fixed parameter pair.
+
+Figure~\ref{fig:ou_trajectories} shows representative trajectories. The generated ensemble reproduces the irregular, correlated fluctuations of the reference process and spans a comparable range of amplitudes. No individual generated trajectory is expected to reproduce an individual numerical trajectory: the target of the model is the conditional trajectory distribution.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{../ou_trajectories.pdf}
+    \caption{
+    Representative held-out Ornstein--Uhlenbeck trajectories generated by
+    Euler--Maruyama (top) and by the trained diffusion model using deterministic
+    DDIM sampling (bottom).
+    }
+    \label{fig:ou_trajectories}
+\end{figure}
+
+A more informative comparison is provided by the ensemble statistics in Fig.~\ref{fig:ou_statistics}. The generated and reference time-dependent means follow one another closely throughout the sampled interval, and the corresponding one-standard-deviation envelopes have similar widths. The diffusion model also reproduces the overall time dependence of the ensemble variance.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{../ou_statistics.pdf}
+    \caption{
+    Ensemble statistics for held-out Ornstein--Uhlenbeck trajectories.
+    The upper panel compares the time-dependent mean and one-standard-deviation
+    interval of the numerical reference and DDIM-generated ensembles. The lower
+    panel compares their time-dependent variances; shaded regions indicate the
+    corresponding uncertainty in the estimated variance. The diffusion model
+    reproduces both the mean response and the scale of the stochastic
+    fluctuations, with modest discrepancies in the variance.
+    }
+    \label{fig:ou_statistics}
+\end{figure}
+
+The OU example therefore tests the basic requirement of the method: a conditional generative surrogate should reproduce the statistical behaviour of a stochastic process over parameter values that were not used for fitting. Because exact expressions for the stationary variance and autocorrelation are available, this system also permits more stringent quantitative tests than the more complicated examples considered below.
+
+\textcolor{red}{Need to add more comparison to analytic results}
+
+% TODO: Add direct comparisons of generated variance and correlation time with
+% Eq.~\eqref{eq:ou_discrete_stationary} over held-out values of (theta,D).
+% This would turn the OU case into a genuinely quantitative analytic benchmark.
+
+% ---------------------------------------------------------------------------
 \subsection{Driven Duffing oscillator}
 \label{ssec:duffing}
 
-The second test is a periodically driven Duffing oscillator with white and coloured stochastic forcing. Introducing the velocity $v$ and an auxiliary Ornstein--Uhlenbeck process $\xi$ for the coloured force gives
-\begin{align}
-    \mathrm{d}q &= v\,\mathrm{d}t, \label{eq:duffing_q}\\
-    \mathrm{d}v &= \left[-\mu v-\alpha_{\mathrm D}q-\beta_{\mathrm D}q^3+\gamma\cos(\Omega t)+\xi\right]\mathrm{d}t+\sqrt{2\mu\Theta}\,\mathrm{d}W_1, \label{eq:duffing_v}\\
-    \mathrm{d}\xi &= -\frac{\xi}{\tau_c}\,\mathrm{d}t+\sqrt{\frac{2D_\xi}{\tau_c}}\,\mathrm{d}W_2. \label{eq:duffing_colour}
-\end{align}
-The Wiener processes $W_1$ and $W_2$ are independent. We use $\alpha_{\mathrm D}=-1$, $\beta_{\mathrm D}=1$, $\mu=0.3$, $\gamma=0.5$, $\Omega=1.2$, $\Theta=0.05$, $\tau_c=0.5$, and $D_\xi=0.02$. With $\alpha_{\mathrm D}<0$ and $\beta_{\mathrm D}>0$, the deterministic restoring potential is a double well \cite{guckenheimer1983nonlinear}.
+The second numerical example is a periodically driven Duffing oscillator subject to both white and coloured stochastic forcing. Compared with the OU process, this system introduces nonlinear dynamics and a bistable potential, while retaining a well-defined numerical reference model.
 
-Initial positions and velocities are sampled independently as
+Introducing the velocity $v$ and an auxiliary Ornstein--Uhlenbeck variable $\xi$ for the coloured force gives
+\begin{align}
+    \mathrm{d}q
+    &=
+    v\,\mathrm{d}t,
+    \label{eq:duffing_q}
+    \\
+    \mathrm{d}v
+    &=
+    \left[
+        -\mu v
+        -\alpha_{\mathrm D}q
+        -\beta_{\mathrm D}q^3
+        +\gamma\cos(\Omega t)
+        +\xi
+    \right]\mathrm{d}t
+    +
+    \sqrt{2\mu\Theta}\,\mathrm{d}W_1,
+    \label{eq:duffing_v}
+    \\
+    \mathrm{d}\xi
+    &=
+    -\frac{\xi}{\tau_c}\,\mathrm{d}t
+    +
+    \sqrt{\frac{2D_\xi}{\tau_c}}\,\mathrm{d}W_2.
+    \label{eq:duffing_colour}
+\end{align}
+The Wiener processes $W_1$ and $W_2$ are independent. We use
+\begin{equation}
+    \alpha_{\mathrm D}=-1,\qquad
+    \beta_{\mathrm D}=1,\qquad
+    \mu=0.3,\qquad
+    \gamma=0.5,\qquad
+    \Omega=1.2,
+\end{equation}
+together with $\Theta=0.05$, $\tau_c=0.5$, and $D_\xi=0.02$. Since $\alpha_{\mathrm D}<0$ and $\beta_{\mathrm D}>0$, the deterministic potential is bistable \cite{guckenheimer1983nonlinear}.
+
+Initial conditions are sampled as
 \begin{equation}
     q(0)\sim\mathcal{U}(-1.8,1.8),
     \qquad
@@ -643,40 +155,52 @@ Initial positions and velocities are sampled independently as
     \qquad
     \xi(0)=0.
 \end{equation}
-A stochastic Heun method with $\Delta t=0.05$ generates trajectories with $N_T=256$ samples. The dataset contains 512 training trajectories and 128 held-out trajectories.
+Reference trajectories are generated using a stochastic Heun scheme with $\Delta t=0.05$ and $N_T=256$. The training and held-out datasets contain 512 and 128 trajectories, respectively.
 
-Only the initial position $q(0)$ is supplied to the diffusion model as a condition. The initial velocity is sampled when the reference trajectory is generated but is not given to the model. The learned distribution is therefore
+Only the initial position $q(0)$ is supplied to the diffusion model. In particular, the initial velocity $v(0)$ is not included in the conditioning variables. The model therefore learns the marginal conditional distribution
 \begin{equation}
     p_\phi(\mathbf{q}\mid q_0),
 \end{equation}
-with the variation due to the unobserved initial velocity and the stochastic forcing represented by the generated distribution. This provides a more demanding test than reconstructing a trajectory from a fully specified initial state.
+in which uncertainty arises both from the stochastic forcing and from the unresolved initial velocity. This is qualitatively different from predicting the subsequent motion from a complete initial state. For a given $q_0$, several dynamically distinct trajectories may be consistent with the information supplied to the model.
 
-The position trajectories and the $q_0$ conditioning values are standardised using the training data. The diffusion model uses 1000 forward diffusion steps and a 200-step DDIM sampler. As in the OU test, one model trajectory is generated for each held-out condition.
+As in the OU example, trajectories and conditioning variables are standardised using the training set. The diffusion model uses 1000 training diffusion levels and 200 deterministic DDIM steps during generation. One generated trajectory is obtained for each held-out value of $q_0$.
 
-Unlike the OU process, the driven Duffing system has no closed-form trajectory distribution against which the model can be compared. We therefore compare the reference and generated ensembles using the time-dependent mean and standard deviation, autocorrelation, power spectrum, and pooled position distribution. The Wasserstein distance provides an additional comparison of the pooled marginals. These quantities test different aspects of the generated process: the mean and variance test its time-dependent distribution, while the autocorrelation and power spectrum test its temporal structure.
+Representative trajectories are shown in Fig.~\ref{fig:duffing_trajectories}. The reference ensemble exhibits a common driven oscillatory component together with substantial trajectory-to-trajectory variation. Around the middle of the sampled interval, some trajectories remain on the positive-displacement branch while others move towards the negative-displacement branch. The generated trajectories display the same broad behaviour, including the separation into dynamically distinct responses. This is important because the variation cannot be inferred from $q_0$ alone: the model must represent the effects of the unobserved $v(0)$ and of subsequent stochastic forcing.
 
-Because the held-out set contains different values of $q_0$ and only one generated trajectory is drawn for each value, these results test performance across the held-out initial-condition distribution. A direct test of $p(\mathbf{q}\mid q_0)$ at one fixed initial position would instead require repeated reference and generated trajectories at the same $q_0$.
-
-\begin{figure}
-    \centering
-    \includegraphics[width=\textwidth]{../ou_trajectories.pdf}
-    \caption{Sample trajectories from the Ornstein--Uhlenbeck system.}
-\end{figure}
-
-\begin{figure}
-    \centering
-    \includegraphics[width=\textwidth]{../ou_statistics.pdf}
-    \caption{Comparison of statistics for the Ornstein--Uhlenbeck system.}
-\end{figure}
-
-\begin{figure}
+\begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{../do_trajectories.pdf}
-    \caption{Sample trajectories from the Duffing oscillator system.}
+    \caption{
+    Representative held-out trajectories of the driven stochastic Duffing
+    oscillator. Numerical trajectories obtained from the stochastic Heun solver
+    are shown above and DDIM-generated trajectories below. Only the initial
+    position $q(0)$ is supplied to the diffusion model; the initial velocity and
+    both stochastic forcing terms remain unresolved. The generated ensemble
+    reproduces the driven oscillatory response and the coexistence of
+    dynamically distinct trajectories.
+    }
+    \label{fig:duffing_trajectories}
 \end{figure}
 
-\begin{figure}
+Figure~\ref{fig:duffing_statistics} compares the corresponding ensemble statistics. The generated mean is almost indistinguishable from the numerical reference over the full trajectory, including the phase and amplitude of the driven oscillation. The one-standard-deviation intervals also overlap closely. The variance provides a more sensitive comparison. The model reproduces its rapid initial increase, the broad maximum near $t\simeq2$, the subsequent reduction around $t\simeq4$--$5$, and the later modulation. The first variance maximum is slightly underestimated, while the minimum near the centre of the interval is somewhat overestimated, but the overall time dependence is retained.
+
+\begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{../do_statistics.pdf}
-    \caption{Comparison of statistics for the Duffing oscillator system.}
+    \caption{
+    Ensemble statistics for the held-out Duffing trajectories. The upper panel
+    compares the time-dependent mean and one-standard-deviation interval of the
+    stochastic numerical solver and the DDIM-generated ensemble. The lower
+    panel compares their variances. The diffusion model reproduces the
+    oscillatory mean response and the principal time dependence of the
+    stochastic spread, including the initial variance growth and its subsequent
+    modulation.
+    }
+    \label{fig:duffing_statistics}
 \end{figure}
+
+The Duffing example tests aspects of the conditional distribution that are absent from the OU process. The response is nonlinear, the stochastic forcing has both white and temporally correlated components, and the supplied condition does not specify the complete initial state. The close agreement of the ensemble statistics therefore indicates that the diffusion model can represent uncertainty associated with both stochastic dynamics and unresolved state variables.
+
+% TODO: If available, add autocorrelation, power spectral density, pooled
+% marginal distribution and Wasserstein-distance results here. These would test
+% temporal and distributional structure beyond the first two moments.
