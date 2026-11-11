@@ -198,34 +198,25 @@ class InverseProblem:
         true_value: float | None = None,
         runs_per_chunk: int = 5,
     ) -> InverseResult:
-        """Optimise all runs simultaneously in a batched loop.
-
-        Args:
-            n_runs: Number of independent runs.
-            parameter_inits: Initial physical-space values ``[n_runs]``.
-            return_trajectories: Record per-iteration trajectories.
-            true_value: True parameter value for display.
-            runs_per_chunk: Runs per backward pass to bound memory.
-
-        Returns:
-            :class:`InverseResult`.
-        """
-        if n_runs is None and parameter_inits is not None:
-            n_runs = len(parameter_inits)
-        elif n_runs is None:
-            n_runs = 1
-
+        """Optimise independent runs in chunks to bound backward-pass memory."""
+        if n_runs is None:
+            n_runs = len(parameter_inits) if parameter_inits is not None else 1
+        if n_runs < 1:
+            raise ValueError("n_runs must be at least 1")
         if parameter_inits is None:
-            rng = np.random.default_rng()
-            parameter_inits = rng.uniform(
-                self.p_min,
-                self.p_max,
-                size=n_runs,
-            ).astype(np.float32)
+            parameter_inits = (
+                np.random.default_rng()
+                .uniform(self.p_min, self.p_max, size=n_runs)
+                .astype(np.float32)
+            )
+        parameter_inits = np.asarray(parameter_inits, dtype=np.float32)
+        if parameter_inits.shape != (n_runs,):
+            raise ValueError("parameter_inits must have shape [n_runs]")
 
         device = self.ddpm.config.device
         cfg = self.config
-
+        if cfg.n_iterations < 1:
+            raise ValueError("n_iterations must be at least 1")
         if runs_per_chunk < 1:
             raise ValueError("runs_per_chunk must be at least 1")
         if cfg.n_gen is not None and cfg.n_gen < 1:
@@ -233,44 +224,28 @@ class InverseProblem:
         if cfg.lr_floor_ratio < 0.0:
             raise ValueError("config.lr_floor_ratio must be non-negative")
         if self.per_run_obs and self.observed.shape[0] != n_runs:
-            msg = (
+            raise ValueError(
                 "Per-run observations must match the number of optimisation runs: "
                 f"{self.observed.shape[0]} observations vs {n_runs} runs."
             )
-            raise ValueError(msg)
 
-        # Slice to the stationary tail once; the differentiable ensemble loss
-        # computes matching statistics internally.
         observed_dev = self.observed.to(device)
         obs_tail = observed_dev if cfg.tail_start is None else observed_dev[..., cfg.tail_start :]
-        obs_means: torch.Tensor | None = None
-        obs_vars: torch.Tensor | None = None
-        obs_stats: tuple[torch.Tensor, torch.Tensor] | None = None
         if self.per_run_obs:
-            obs_means = obs_tail.mean(dim=1).detach()
-            obs_vars = obs_tail.var(dim=1).detach()
+            obs_stats = [(x.mean(dim=0).detach(), x.var(dim=0).detach()) for x in obs_tail]
         else:
-            obs_stats = (
-                obs_tail.mean(dim=0).detach(),
-                obs_tail.var(dim=0).detach(),
-            )
+            obs_stats = [(obs_tail.mean(dim=0).detach(), obs_tail.var(dim=0).detach())] * n_runs
 
         if cfg.parameterisation == "physical":
             parameters = torch.tensor(
-                parameter_inits,
-                dtype=torch.float32,
-                device=device,
-                requires_grad=True,
+                parameter_inits, dtype=torch.float32, device=device, requires_grad=True
             )
             optimiser_lr = cfg.lr * self.p_scale
             grad_clip_norm = 1.0 / self.p_scale
         elif cfg.parameterisation == "sigmoid_bounded":
             raw_inits = _physical_to_bounded_raw(parameter_inits, self.p_min, self.p_max)
             parameters = torch.tensor(
-                raw_inits,
-                dtype=torch.float32,
-                device=device,
-                requires_grad=True,
+                raw_inits, dtype=torch.float32, device=device, requires_grad=True
             )
             optimiser_lr = 2.0 * cfg.lr
             grad_clip_norm = 1.0
@@ -282,13 +257,11 @@ class InverseProblem:
 
         optimiser = torch.optim.Adam([parameters], lr=optimiser_lr)
         scheduler = CosineAnnealingLR(
-            optimiser,
-            T_max=cfg.n_iterations,
-            eta_min=optimiser_lr * cfg.lr_floor_ratio,
+            optimiser, T_max=cfg.n_iterations, eta_min=optimiser_lr * cfg.lr_floor_ratio
         )
-
+        n_gen = cfg.n_gen if cfg.n_gen is not None else self.n_obs
+        fixed_noises = torch.randn(n_runs, n_gen, self.T, device=device)
         chunk_starts = list(range(0, n_runs, runs_per_chunk))
-
         trajs: list[list[float]] | None = (
             [[] for _ in range(n_runs)] if return_trajectories else None
         )
@@ -296,145 +269,111 @@ class InverseProblem:
             [[] for _ in range(n_runs)] if return_trajectories else None
         )
 
-        if cfg.parameterisation == "sigmoid_bounded":
-            best_p_phys = _bounded_raw_to_physical(parameters.detach(), self.p_min, self.p_max)
-        else:
-            best_p_phys = parameters.detach().clone()
+        def physical_value(index: int) -> torch.Tensor:
+            if cfg.parameterisation == "sigmoid_bounded":
+                return _bounded_raw_to_physical(parameters[index], self.p_min, self.p_max)
+            return parameters[index]
+
+        def run_loss(index: int, track_grad: bool) -> tuple[torch.Tensor, torch.Tensor]:
+            p_phys = physical_value(index)
+            with torch.set_grad_enabled(track_grad):
+                conditioning = self.build_conditioning(
+                    p_phys.unsqueeze(0), n_gen, self.T, device, index
+                )
+                generated = self.ddpm.generate(
+                    conditioning,
+                    n_samples=1,
+                    require_grad=track_grad,
+                    show_progress=False,
+                    initial_noise=fixed_noises[index],
+                    grad_steps=cfg.grad_steps,
+                    grad_steps_spread=cfg.grad_steps_spread,
+                ).squeeze(1)
+                if self.sample_transform is not None:
+                    generated = self.sample_transform(generated, p_phys)
+                gen_tail = generated if cfg.tail_start is None else generated[..., cfg.tail_start :]
+                obs_for_run = obs_tail[index] if self.per_run_obs else obs_tail
+                loss = moment_matching_loss(
+                    gen_tail,
+                    obs_for_run,
+                    mean_weight=cfg.mean_weight,
+                    variance_weight=cfg.variance_weight,
+                    precomputed_obs_stats=obs_stats[index],
+                )
+                if cfg.parameterisation == "physical":
+                    loss = loss + 0.1 * (F.relu(p_phys - self.p_max) / self.p_scale) ** 2
+                    loss = loss + 0.1 * (F.relu(self.p_min - p_phys) / self.p_scale) ** 2
+            return loss, p_phys
+
+        best_p_phys = torch.stack([physical_value(i).detach() for i in range(n_runs)])
         best_losses = torch.full((n_runs,), float("inf"), device=device)
-
-        # Pre-sample fixed initial noise per run so each run's loss landscape is
-        # deterministic across iterations but independent across runs.
-        # Shape [n_runs, n_gen, trajectory_length].
-        n_gen = cfg.n_gen if cfg.n_gen is not None else self.n_obs
-        fixed_noises = torch.randn(n_runs, n_gen, self.T, device=device)
-
         t0 = time.perf_counter()
 
         for it in range(cfg.n_iterations):
             optimiser.zero_grad()
             total_loss = 0.0
             iter_run_losses = [0.0] * n_runs
+            iter_parameters = [0.0] * n_runs
 
             for c_start in chunk_starts:
                 c_end = min(c_start + runs_per_chunk, n_runs)
                 chunk_loss = torch.tensor(0.0, device=device)
-
                 for r in range(c_start, c_end):
-                    if cfg.parameterisation == "sigmoid_bounded":
-                        p_phys = _bounded_raw_to_physical(parameters[r], self.p_min, self.p_max)
-                    else:
-                        p_phys = parameters[r]
-
-                    conditioning = self.build_conditioning(
-                        p_phys.unsqueeze(0),
-                        n_gen,
-                        self.T,
-                        device,
-                        r,
-                    )
-                    generated = self.ddpm.generate(
-                        conditioning,
-                        n_samples=1,
-                        require_grad=True,
-                        show_progress=False,
-                        initial_noise=fixed_noises[r],
-                        grad_steps=cfg.grad_steps,
-                        grad_steps_spread=cfg.grad_steps_spread,
-                    ).squeeze(1)
-
-                    if self.sample_transform is not None:
-                        generated = self.sample_transform(generated, p_phys)
-
-                    gen_tail = (
-                        generated if cfg.tail_start is None else generated[..., cfg.tail_start :]
-                    )
-                    if self.per_run_obs:
-                        assert obs_means is not None
-                        assert obs_vars is not None
-                        obs_stats_for_run = (obs_means[r], obs_vars[r])
-                    else:
-                        assert obs_stats is not None
-                        obs_stats_for_run = obs_stats
-                    run_loss = moment_matching_loss(
-                        gen_tail,
-                        obs_tail[r] if self.per_run_obs else obs_tail,
-                        mean_weight=cfg.mean_weight,
-                        variance_weight=cfg.variance_weight,
-                        precomputed_obs_stats=obs_stats_for_run,
-                    )
-                    if cfg.parameterisation == "physical":
-                        run_loss = (
-                            run_loss + 0.1 * (F.relu(p_phys - self.p_max) / self.p_scale) ** 2
-                        )
-                        run_loss = (
-                            run_loss + 0.1 * (F.relu(self.p_min - p_phys) / self.p_scale) ** 2
-                        )
-                    chunk_loss = chunk_loss + run_loss
-                    iter_run_losses[r] = run_loss.item()
-
-                    if cfg.use_best_iterate:
-                        with torch.no_grad():
-                            if run_loss.item() < best_losses[r].item():
-                                best_losses[r] = run_loss.detach()
-                                best_p_phys[r] = p_phys.detach()
-
+                    loss, p_phys = run_loss(r, track_grad=True)
+                    chunk_loss = chunk_loss + loss
+                    iter_run_losses[r] = float(loss.detach())
+                    iter_parameters[r] = float(p_phys.detach())
+                    if loss.item() < best_losses[r].item():
+                        best_losses[r] = loss.detach()
+                        best_p_phys[r] = p_phys.detach()
                 chunk_loss.backward()
                 total_loss += chunk_loss.item()
+
+            if trajs is not None and loss_trajs is not None:
+                for r in range(n_runs):
+                    trajs[r].append(iter_parameters[r])
+                    loss_trajs[r].append(iter_run_losses[r])
 
             torch.nn.utils.clip_grad_norm_([parameters], max_norm=grad_clip_norm)
             optimiser.step()
             scheduler.step()
 
-            if trajs is not None:
-                with torch.no_grad():
-                    if cfg.parameterisation == "sigmoid_bounded":
-                        p_phys_all = _bounded_raw_to_physical(parameters, self.p_min, self.p_max)
-                    else:
-                        p_phys_all = parameters.detach()
-                    for r in range(n_runs):
-                        trajs[r].append(float(p_phys_all[r]))
-            if loss_trajs is not None:
-                for r in range(n_runs):
-                    loss_trajs[r].append(iter_run_losses[r])
-
             if it % 10 == 0:
                 with torch.no_grad():
-                    if cfg.parameterisation == "sigmoid_bounded":
-                        p_phys_all = _bounded_raw_to_physical(parameters, self.p_min, self.p_max)
-                    else:
-                        p_phys_all = parameters.detach()
+                    p_phys_all = torch.stack([physical_value(r) for r in range(n_runs)])
                 target_str = f"  target={true_value:.4f}" if true_value is not None else ""
                 print(
-                    f"  iter {it:3d}/{cfg.n_iterations}: "
-                    f"loss={total_loss:.6f}, "
-                    f"range=[{p_phys_all.min():.4f}, {p_phys_all.max():.4f}]"
-                    f"{target_str}"
+                    f"  iter {it:3d}/{cfg.n_iterations}: loss={total_loss:.6f}, "
+                    f"range=[{p_phys_all.min():.4f}, {p_phys_all.max():.4f}]{target_str}"
                 )
 
         wall_time = time.perf_counter() - t0
-
         with torch.no_grad():
+            final_iterate = torch.stack([physical_value(r).detach() for r in range(n_runs)])
+            final_run_losses = []
+            for r in range(n_runs):
+                loss, _ = run_loss(r, track_grad=False)
+                final_run_losses.append(float(loss))
+                if loss.item() < best_losses[r].item():
+                    best_losses[r] = loss
+                    best_p_phys[r] = final_iterate[r]
+            final_run_losses = np.asarray(final_run_losses, dtype=np.float32)
+            if trajs is not None and loss_trajs is not None:
+                for r in range(n_runs):
+                    trajs[r].append(float(final_iterate[r]))
+                    loss_trajs[r].append(float(final_run_losses[r]))
+
             if cfg.use_best_iterate:
                 final_phys = best_p_phys.cpu().numpy()
-            elif cfg.parameterisation == "sigmoid_bounded":
-                final_phys = (
-                    _bounded_raw_to_physical(parameters, self.p_min, self.p_max).cpu().numpy()
-                )
+                final_losses = best_losses.cpu().numpy()
             else:
-                final_phys = parameters.detach().cpu().numpy()
-
-        final_losses = (
-            best_losses.cpu().numpy()
-            if cfg.use_best_iterate
-            else np.full(n_runs, total_loss / n_runs)
-        )
+                final_phys = final_iterate.cpu().numpy()
+                final_losses = final_run_losses
 
         print(
             f"\n  {n_runs} runs done in {wall_time:.1f}s.  "
-            f"median={float(np.median(final_phys)):.4f}, "
-            f"mean={float(np.mean(final_phys)):.4f}"
+            f"median={float(np.median(final_phys)):.4f}, mean={float(np.mean(final_phys)):.4f}"
         )
-
         return InverseResult(
             estimates=final_phys,
             parameter_inits=parameter_inits.copy(),
