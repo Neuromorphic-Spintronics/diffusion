@@ -15,6 +15,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 # =============================================================================
 # Colour Palette
@@ -82,11 +84,7 @@ _FALLBACK_CONFIG = {
 
 
 def configure_matplotlib(use_latex: bool = True) -> bool:
-    """Configure matplotlib
-
-    The LaTeX renderability probe runs on the non-interactive Agg backend;
-    afterwards the caller's original backend is restored so figures still
-    display interactively (e.g. in Jupyter).
+    """Configure matplotlib, probing LaTeX without changing the active backend.
 
     Args:
         use_latex: Whether to attempt LaTeX rendering (default: True)
@@ -94,25 +92,24 @@ def configure_matplotlib(use_latex: bool = True) -> bool:
     Returns:
         True if LaTeX rendering is enabled, False otherwise
     """
-    previous_backend = matplotlib.get_backend()
-    try:
-        plt.switch_backend("Agg")
-        if use_latex:
+    latex_available = False
+    if use_latex:
+        with matplotlib.rc_context(_LATEX_CONFIG):  # ty: ignore[invalid-argument-type]
+            fig = Figure()
+            FigureCanvasAgg(fig)
             try:
-                plt.rcParams.update(_LATEX_CONFIG)  # ty: ignore[no-matching-overload]
-                # Test LaTeX rendering
-                fig, ax = plt.subplots(1, 1)
+                ax = fig.subplots()
                 ax.text(0.5, 0.5, r"$\mu$")
                 fig.canvas.draw()
-                plt.close(fig)
-                return True
+                latex_available = True
             except (RuntimeError, FileNotFoundError):
                 pass
+            finally:
+                fig.clear()
 
-        plt.rcParams.update(_FALLBACK_CONFIG)  # ty: ignore[no-matching-overload]
-        return False
-    finally:
-        plt.switch_backend(previous_backend)
+    config = _LATEX_CONFIG if latex_available else _FALLBACK_CONFIG
+    plt.rcParams.update(config)  # ty: ignore[no-matching-overload]
+    return latex_available
 
 
 def _to_numpy(data: torch.Tensor | np.ndarray) -> np.ndarray:
@@ -131,10 +128,12 @@ def save_figure(fig: plt.Figure, save_path: Path | str | None) -> None:
     """
     if save_path:
         save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path.with_suffix(".pdf"), dpi=300, bbox_inches="tight")
-        print(f"Saved figure to {save_path.with_suffix('.pdf')}")
-        plt.close(fig)
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_path.with_suffix(".pdf"), dpi=300, bbox_inches="tight")
+            print(f"Saved figure to {save_path.with_suffix('.pdf')}")
+        finally:
+            plt.close(fig)
     else:
         plt.show()
 

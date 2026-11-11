@@ -3,6 +3,7 @@
 A modular implementation of DDPMs for time series generation with conditioning.
 """
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +20,6 @@ from diffusionsde.evaluator import (
     sample_acf,
 )
 from diffusionsde.inverse import InverseProblem, InverseProblemConfig, InverseResult
-from diffusionsde.logging import (
-    wandb_finish,
-    wandb_init,
-    wandb_log,
-    wandb_log_artifact,
-)
 from diffusionsde.models import ConditionalUNet, compute_dilated_rf
 from diffusionsde.plotting import (
     configure_matplotlib,
@@ -68,18 +63,19 @@ class DDPM:
         self._model: DiffusionModel | None = None
         self._trainer: DiffusionTrainer | None = None
 
-    def _build_unet(self) -> ConditionalUNet:
+    def _build_unet(self, config: DiffusionConfig | None = None) -> ConditionalUNet:
         """Build the U-Net architecture from config."""
+        config = config or self.config
         return ConditionalUNet(
-            input_dim=self.config.trajectory_length,
-            hidden_dim=self.config.hidden_dim,
-            n_layers=self.config.n_layers,
-            n_input_channels=self.config.n_output_channels + self.config.n_conditioning_channels,
-            n_output_channels=self.config.n_output_channels,
-            use_position_encoding=self.config.use_position_encoding,
-            dilation_schedule=self.config.dilation_schedule,
-            kernel_size=self.config.kernel_size,
-            causal=getattr(self.config, "causal", False),
+            input_dim=config.trajectory_length,
+            hidden_dim=config.hidden_dim,
+            n_layers=config.n_layers,
+            n_input_channels=config.n_output_channels + config.n_conditioning_channels,
+            n_output_channels=config.n_output_channels,
+            use_position_encoding=config.use_position_encoding,
+            dilation_schedule=config.dilation_schedule,
+            kernel_size=config.kernel_size,
+            causal=getattr(config, "causal", False),
         )
 
     def fit(
@@ -98,22 +94,26 @@ class DDPM:
         Returns:
             Dictionary of training metrics
         """
-        if n_epochs is not None:
-            self.config.n_epochs = n_epochs
+        config = (
+            replace(self.config, n_epochs=n_epochs)
+            if n_epochs is not None
+            else replace(self.config)
+        )
 
-        # Initialise model
-        unet = self._build_unet()
-        self._model = DiffusionModel(self.config, unet, self.sampler_type, self.sampler_kwargs)
+        # Keep the current public model usable if initialisation or training fails.
+        unet = self._build_unet(config)
+        model = DiffusionModel(config, unet, self.sampler_type, self.sampler_kwargs)
 
         # Initialise trainer
-        self._trainer = DiffusionTrainer(
-            self._model, dataset, val_dataset=val_dataset, config=self.config
-        )
+        trainer = DiffusionTrainer(model, dataset, val_dataset=val_dataset, config=config)
 
         # Train
         print(f"Training DDPM on {self.config.device}...")
         print(f"Model parameters: {sum(p.numel() for p in unet.parameters()):,}")
-        metrics = self._trainer.train()
+        metrics = trainer.train()
+        self.config = config
+        self._model = model
+        self._trainer = trainer
 
         return metrics
 
@@ -153,10 +153,17 @@ class DDPM:
         Args:
             path: Path to save the model checkpoint
         """
-        if self._trainer is None:
+        if self._model is None:
             raise RuntimeError("Model not trained. Call fit() first.")
-
-        self._trainer.save_checkpoint(Path(path))
+        path = Path(path).absolute()
+        if self._trainer is not None:
+            self._trainer.save_checkpoint(path)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(
+                {"model_state_dict": self._model.model.state_dict(), "config": self.config},
+                path,
+            )
 
     def load(self, path: str | Path):
         """Load a trained model from disk.
@@ -164,27 +171,29 @@ class DDPM:
         Args:
             path: Path to the model checkpoint
         """
-        # Use the default device detection from DiffusionConfig
-        map_location = DiffusionConfig().device
+        map_location = self.config.device
 
         checkpoint = torch.load(path, weights_only=False, map_location=map_location)
 
-        # Initialise model from checkpoint config
-        self.config = checkpoint["config"]
-        self.config.device = map_location
-
-        unet = self._build_unet()
-        self._model = DiffusionModel(self.config, unet, self.sampler_type, self.sampler_kwargs)
-        self._model.model.load_state_dict(checkpoint["model_state_dict"])
+        # Build fully before publishing so failed loads leave current state intact.
+        config = checkpoint["config"]
+        config.device = map_location
+        model = DiffusionModel(
+            config, self._build_unet(config), self.sampler_type, self.sampler_kwargs
+        )
+        model.model.load_state_dict(checkpoint["model_state_dict"])
+        self.config = config
+        self._model = model
+        self._trainer = None
 
         print(f"Model loaded from {path}")
 
-    def freeze(self) -> None:
-        """Put model in frozen eval mode (no gradient computation)."""
+    def freeze(self, frozen: bool = True) -> None:
+        """Freeze model parameters for inference, or unfreeze them with ``False``."""
         model = self.model
-        model.model.eval()
+        model.model.train(not frozen)
         for param in model.model.parameters():
-            param.requires_grad_(False)
+            param.requires_grad_(not frozen)
 
     @property
     def model(self) -> DiffusionModel:
@@ -212,10 +221,6 @@ __all__ = [
     "plot_marginal_distribution",
     "plot_loss_curve",
     "plot_phase_space",
-    "wandb_init",
-    "wandb_log",
-    "wandb_log_artifact",
-    "wandb_finish",
     "moment_matching_loss",
     "InverseProblem",
     "InverseProblemConfig",

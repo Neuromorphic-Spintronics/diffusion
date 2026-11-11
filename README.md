@@ -10,7 +10,7 @@ sampling.
 - 1D residual U-Net denoiser with sinusoidal timestep embeddings, dilated
   convolutions and optional conditioning channels
 - DDIM and DDPM samplers
-- Training loop with validation, checkpointing and Weights & Biases logging
+- Training loop with validation and checkpointing
 - Evaluation metrics for distributional comparison of generated trajectories
 - Inverse problem solvers conditioned on partial observations
 
@@ -78,11 +78,20 @@ Example notebooks (Ornstein-Uhlenbeck, Duffing oscillator) live in
 uv sync
 
 uv run pytest                # full test suite
-uv run pytest -m "not slow"  # fast subset
 uv run ruff check .
 uv run ruff format .
 uv run ty check
 ```
+
+Tests use small CPU models and a non-interactive plotting backend. CI runs the
+same full suite on Python 3.13 and 3.14.
+
+`DDPM.fit()` starts a fresh model. To continue an interrupted training run, create
+a `DiffusionTrainer`, call `load_checkpoint()`, then `train()`; `config.n_epochs`
+is the total target epoch count. Checkpoints retain continuation weights and
+the best validation snapshot separately. `DDPM.load()` loads a model for use
+and saving; it does not attach a trainer. `freeze(False)` makes frozen model
+parameters trainable again.
 
 ## Licence
 

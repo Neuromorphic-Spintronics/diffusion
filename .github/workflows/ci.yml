@@ -81,8 +81,8 @@ jobs:
       - name: Install locked development environment
         run: uv sync --locked --dev
 
-      - name: Run non-slow tests
-        run: uv run python -m pytest -m "not slow" -q
+      - name: Run tests
+        run: uv run python -m pytest -q
 
   gate:
     name: Required CI gate

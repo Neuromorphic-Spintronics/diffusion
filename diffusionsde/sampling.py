@@ -6,6 +6,8 @@ This module implements different sampling strategies for denoising diffusion mod
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import torch
 from tqdm import tqdm
@@ -34,9 +36,21 @@ class DiffusionSampler(ABC):
         self.config = config
         self.model = model
         self.device = config.device
+        if config.n_timesteps < 1:
+            raise ValueError("n_timesteps must be at least 1")
         self.betas = betas
         self.alphas_cumprod = alphas_cumprod
         self.alphas = 1.0 - betas
+
+    @contextmanager
+    def _sampling_context(self, require_grad: bool) -> Iterator[None]:
+        was_training = self.model.training
+        self.model.eval()
+        try:
+            with torch.set_grad_enabled(require_grad):
+                yield
+        finally:
+            self.model.train(was_training)
 
     @abstractmethod
     def sample(
@@ -82,9 +96,6 @@ class DiffusionSampler(ABC):
         Returns:
             Tuple of (prepared conditioning, initial noise x_t)
         """
-        if not require_grad:
-            self.model.eval()
-
         # Ensure conditioning has batch dimension
         if conditioning.dim() == 1:
             conditioning = conditioning.unsqueeze(0).repeat(n_samples, 1)
@@ -98,7 +109,7 @@ class DiffusionSampler(ABC):
 
         conditioning = conditioning.to(self.device)
         if require_grad and not conditioning.requires_grad:
-            conditioning.requires_grad_(True)
+            conditioning = conditioning.detach().requires_grad_(True)
 
         if initial_noise is not None:
             x_t = initial_noise.to(self.device)
@@ -196,20 +207,20 @@ class DDPMSampler(DiffusionSampler):
         Returns:
             Generated samples of shape [n_samples, trajectory_length]
         """
-        conditioning, x_t = self._prepare_sampling(
-            conditioning, n_samples, require_grad, initial_noise
-        )
+        with self._sampling_context(require_grad):
+            conditioning, x_t = self._prepare_sampling(
+                conditioning, n_samples, require_grad, initial_noise
+            )
 
-        # Reverse diffusion
-        timestep_iterator = range(self.config.n_timesteps - 1, -1, -1)
-        if show_progress:
-            timestep_iterator = tqdm(timestep_iterator, desc="DDPM Sampling")
+            timestep_iterator = range(self.config.n_timesteps - 1, -1, -1)
+            if show_progress:
+                timestep_iterator = tqdm(timestep_iterator, desc="DDPM Sampling")
 
-        for t_idx in timestep_iterator:
-            t = torch.full((conditioning.shape[0],), t_idx, dtype=torch.long).to(self.device)
-            x_t = self.reverse_step(x_t, t, conditioning, add_noise=(t_idx > 0))
+            for t_idx in timestep_iterator:
+                t = torch.full((conditioning.shape[0],), t_idx, dtype=torch.long).to(self.device)
+                x_t = self.reverse_step(x_t, t, conditioning, add_noise=(t_idx > 0))
 
-        return x_t
+            return x_t
 
 
 class DDIMSampler(DiffusionSampler):
@@ -240,7 +251,11 @@ class DDIMSampler(DiffusionSampler):
         self.eta = eta
 
         # Use fewer steps for faster inference
-        self.num_inference_steps = num_inference_steps or config.n_timesteps
+        self.num_inference_steps = (
+            config.n_timesteps if num_inference_steps is None else num_inference_steps
+        )
+        if self.num_inference_steps < 1:
+            raise ValueError("num_inference_steps must be at least 1")
 
         # Create timestep schedule (evenly spaced) while honouring the
         # requested step count exactly.  The schedule is stored in ascending
@@ -290,7 +305,11 @@ class DDIMSampler(DiffusionSampler):
 
         # Get alpha values
         alpha_t = self.alphas_cumprod[t]
-        alpha_t_prev = self.alphas_cumprod[t_prev] if t_prev >= 0 else torch.tensor(1.0)
+        alpha_t_prev = (
+            self.alphas_cumprod[t_prev]
+            if t_prev >= 0
+            else torch.ones((), device=self.alphas_cumprod.device, dtype=self.alphas_cumprod.dtype)
+        )
 
         # Predict x_0 from x_t and predicted noise
         pred_x0 = (x_t - torch.sqrt(1.0 - alpha_t) * predicted_noise) / torch.sqrt(alpha_t)
@@ -336,14 +355,39 @@ class DDIMSampler(DiffusionSampler):
             grad_steps: If set, restricts autograd to a subset of denoising steps.  By
                 default (``grad_steps_spread=False``) these are the *final* ``grad_steps``
                 steps (largest denoising effect, lowest noise).  If ``grad_steps_spread=True``
-                the steps are chosen *linearly across the full chain*, capturing gradient
-                signal at the start, middle, and end of denoising.
+                the steps are chosen *linearly across the full chain*. Unselected steps
+                detach the preceding graph, so only the final contiguous selected steps
+                contribute to the returned sample's gradient.
             grad_steps_spread: If ``True``, spread the ``grad_steps`` gradient-carrying
                 steps uniformly across the chain instead of concentrating them at the end.
 
         Returns:
             Generated samples of shape [n_samples, trajectory_length]
         """
+        if grad_steps is not None and grad_steps < 1:
+            raise ValueError("grad_steps must be at least 1 when provided")
+
+        with self._sampling_context(require_grad):
+            return self._sample(
+                conditioning,
+                n_samples,
+                require_grad,
+                initial_noise,
+                show_progress,
+                grad_steps,
+                grad_steps_spread,
+            )
+
+    def _sample(
+        self,
+        conditioning: torch.Tensor,
+        n_samples: int,
+        require_grad: bool,
+        initial_noise: torch.Tensor | None,
+        show_progress: bool,
+        grad_steps: int | None,
+        grad_steps_spread: bool,
+    ) -> torch.Tensor:
         conditioning, x_t = self._prepare_sampling(
             conditioning, n_samples, require_grad, initial_noise
         )
@@ -363,13 +407,16 @@ class DDIMSampler(DiffusionSampler):
             grad_indices: set[int] | None = None
         elif grad_steps_spread:
             # Linearly spaced across the full chain (inclusive of first and last)
-            grad_indices = set(
-                int(round(i))
-                for i in torch.linspace(0, n_total - 1, min(grad_steps, n_total)).tolist()
-            )
+            if grad_steps == 1:
+                grad_indices = {n_total - 1}
+            else:
+                grad_indices = set(
+                    int(round(i))
+                    for i in torch.linspace(0, n_total - 1, min(grad_steps, n_total)).tolist()
+                )
         else:
             # Final grad_steps steps only
-            grad_indices = set(range(n_total - grad_steps, n_total))
+            grad_indices = set(range(n_total - min(grad_steps, n_total), n_total))
 
         if show_progress:
             desc = f"DDIM Sampling ({self.num_inference_steps} steps)"

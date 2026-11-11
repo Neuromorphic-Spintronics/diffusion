@@ -1,5 +1,6 @@
 """Training utilities for diffusion models."""
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,6 @@ from tqdm import tqdm
 
 from diffusionsde.config import DiffusionConfig
 from diffusionsde.diffusion import DiffusionModel
-from diffusionsde.logging import wandb_log
 
 
 class DiffusionTrainer:
@@ -37,6 +37,8 @@ class DiffusionTrainer:
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.config = config or DiffusionConfig()
+        if self.config.n_epochs < 1:
+            raise ValueError("n_epochs must be at least 1")
 
         # Create dataloader
         use_pin_memory = self.config.device == "cuda"  # Only pin memory for CUDA
@@ -74,6 +76,8 @@ class DiffusionTrainer:
         self.best_val_loss: float | None = None
         self.best_epoch: int | None = None
         self.best_state_dict: dict[str, torch.Tensor] | None = None
+        self.completed_epochs = 0
+        self.resume_state_dict: dict[str, torch.Tensor] | None = None
 
     def train(self) -> dict[str, list[float]]:
         """Train the diffusion model.
@@ -81,9 +85,21 @@ class DiffusionTrainer:
         Returns:
             Dictionary of training metrics
         """
+        if self.resume_state_dict is not None:
+            self.model.model.load_state_dict(self.resume_state_dict)
+            self.resume_state_dict = None
+        if self.scheduler.T_max != self.config.n_epochs:
+            # Rebase the cosine schedule when extending the total epoch target.
+            self.scheduler.T_max = self.config.n_epochs
+            factor = (1 + math.cos(math.pi * self.completed_epochs / self.config.n_epochs)) / 2
+            for group, base_lr in zip(
+                self.optimiser.param_groups, self.scheduler.base_lrs, strict=True
+            ):
+                group["lr"] = self.scheduler.eta_min + (base_lr - self.scheduler.eta_min) * factor
+            self.scheduler._last_lr = [group["lr"] for group in self.optimiser.param_groups]
         self.model.model.train()
 
-        for epoch in range(self.config.n_epochs):
+        for epoch in range(self.completed_epochs, self.config.n_epochs):
             # Training phase
             epoch_train_losses = []
 
@@ -124,17 +140,7 @@ class DiffusionTrainer:
                         name: tensor.detach().cpu().clone()
                         for name, tensor in self.model.model.state_dict().items()
                     }
-
-            # W&B logging (automatic if enabled)
-            wandb_log(
-                {
-                    "train/loss": avg_train_loss,
-                    "train/epoch": epoch + 1,
-                    "train/lr": self.scheduler.get_last_lr()[0],
-                    **({"val/loss": val_loss} if val_loss is not None else {}),
-                },
-                step=epoch + 1,
-            )
+            self.completed_epochs = epoch + 1
 
             # Print epoch summary
             if val_loss is not None:
@@ -155,6 +161,12 @@ class DiffusionTrainer:
                 )
                 self.save_checkpoint(checkpoint_path)
 
+        if self.completed_epochs:
+            self.resume_state_dict = {
+                name: tensor.detach().cpu().clone()
+                for name, tensor in self.model.model.state_dict().items()
+            }
+
         if self.best_state_dict is not None:
             self.model.model.load_state_dict(self.best_state_dict)
             print(
@@ -174,18 +186,20 @@ class DiffusionTrainer:
     def _validate(self) -> float:
         """Run validation and return average loss."""
         assert self.val_loader is not None, "Validation loader must be set"
+        was_training = self.model.model.training
         self.model.model.eval()
         val_losses = []
 
-        with torch.no_grad():
-            for data_batch, cond_batch in self.val_loader:
-                data_batch = data_batch.to(self.config.device)
-                cond_batch = cond_batch.to(self.config.device)
+        try:
+            with torch.no_grad():
+                for data_batch, cond_batch in self.val_loader:
+                    data_batch = data_batch.to(self.config.device)
+                    cond_batch = cond_batch.to(self.config.device)
 
-                loss = self.model.compute_loss(data_batch, cond_batch)
-                val_losses.append(loss.item())
-
-        self.model.model.train()
+                    loss = self.model.compute_loss(data_batch, cond_batch)
+                    val_losses.append(loss.item())
+        finally:
+            self.model.model.train(was_training)
         return float(np.mean(val_losses))
 
     def save_checkpoint(self, path: Path) -> None:
@@ -205,6 +219,11 @@ class DiffusionTrainer:
             checkpoints_dir.mkdir(parents=True, exist_ok=True)
             checkpoint_path = checkpoints_dir / path.name
 
+        resume_state_dict = self.resume_state_dict
+        if resume_state_dict is None and self.completed_epochs:
+            # Periodic checkpoints are written before best-weight restoration.
+            resume_state_dict = self.model.model.state_dict()
+
         torch.save(
             {
                 "model_state_dict": self.model.model.state_dict(),
@@ -214,6 +233,9 @@ class DiffusionTrainer:
                 "val_losses": self.val_losses,
                 "best_val_loss": self.best_val_loss,
                 "best_epoch": self.best_epoch,
+                "best_state_dict": self.best_state_dict,
+                "completed_epochs": self.completed_epochs,
+                "resume_state_dict": resume_state_dict,
                 "config": self.config,
             },
             checkpoint_path,
@@ -222,7 +244,7 @@ class DiffusionTrainer:
 
     def load_checkpoint(self, path: Path) -> None:
         """Load model checkpoint."""
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location=self.config.device)
         self.model.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimiser.load_state_dict(checkpoint["optimiser_state_dict"])
         self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
@@ -230,4 +252,17 @@ class DiffusionTrainer:
         self.val_losses = checkpoint.get("val_losses", [])
         self.best_val_loss = checkpoint.get("best_val_loss")
         self.best_epoch = checkpoint.get("best_epoch")
+        self.best_state_dict = checkpoint.get("best_state_dict")
+        self.completed_epochs = checkpoint.get("completed_epochs", len(self.train_losses))
+        self.resume_state_dict = checkpoint.get("resume_state_dict")
+        if self.best_state_dict is None:
+            # Older checkpoints did not store the best weights; their current
+            # model may not match the recorded best loss, so restart best tracking.
+            self.best_val_loss = None
+            self.best_epoch = None
+        if self.resume_state_dict is None and self.completed_epochs:
+            self.resume_state_dict = {
+                name: tensor.detach().cpu().clone()
+                for name, tensor in self.model.model.state_dict().items()
+            }
         print(f"Checkpoint loaded from {path}")
