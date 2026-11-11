@@ -16,6 +16,22 @@ sampling.
 
 ## Installation
 
+Install from GitHub when the package is not available on PyPI:
+
+```bash
+uv add "diffusionsde @ git+https://github.com/Neuromorphic-Spintronics/diffusion.git"
+# or
+python -m pip install git+https://github.com/Neuromorphic-Spintronics/diffusion.git
+```
+
+Then import it using the package name:
+
+```python
+from diffusionsde import DDPM, DiffusionConfig
+```
+
+When a PyPI release is available, install it with:
+
 ```bash
 uv add diffusionsde
 # or
